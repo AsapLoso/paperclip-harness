@@ -35,6 +35,7 @@ import { runRepositorySkillsFlow } from "./repository-skills.js";
 import { captureStockHarness, gradeStockHarness, gradeStockHire } from "./stock-harness.js";
 import { verifyStockHarnessPreflight, STOCK_PREFLIGHT_ENV } from "./stock-harness-admission.js";
 import { createTaskThroughUi, submitTaskReply } from "./user-actions.js";
+import { armResponseTiming } from "./response-timing.js";
 
 import { projectFirstTaskResult, runFirstTaskFlow, setupFirstTaskFixtures } from "./first-task-flow.js";
 import { runChatFlow } from "./chat-flow.js";
@@ -636,6 +637,7 @@ for (const execution of executions) {
     };
     let firstTaskEvidence: RunnerE2EResult["firstTask"];
     let turnTimings: NonNullable<RunnerE2EResult["turnTimings"]> | undefined;
+    let responseTiming: ReturnType<typeof armResponseTiming> | undefined;
     const turnSubmissionTimesMs: number[] = [];
     const screenshots: NonNullable<RunnerE2EResult["screenshots"]> = [];
     let primaryError: unknown;
@@ -1199,6 +1201,8 @@ for (const execution of executions) {
           workMode: execution.task.workMode,
           projectName: fixtures.project?.name,
           requireExplicitTitle: execution.suite.id === "task-titles" && Boolean(title),
+          beforeDispatch: execution.suite.id === "codie-latency-diagnostic"
+            ? () => { responseTiming = armResponseTiming({ page }); } : undefined,
         });
       turnSubmissionTimesMs.push(createdTask.submittedAtMs);
 
@@ -1251,6 +1255,7 @@ for (const execution of executions) {
       );
 
       const loadTaskState = async () => {
+        const observeSettlement = responseTiming?.beginSettlement();
         const [currentIssue, runs, comments, interactions] = await Promise.all([
           api.get<IssueRecord>(`/api/issues/${issue!.id}`),
           api.get<RunRecord[]>(
@@ -1263,6 +1268,9 @@ for (const execution of executions) {
           ),
           api.get<InteractionRecord[]>(`/api/issues/${issue!.id}/interactions`),
         ]);
+        observeSettlement?.({ present: currentIssue.status === execution.task.expectedTerminalState.issue
+          && matchingRuns(runs, currentIssue).length >= minimumRunCount(execution.task)
+          && matchingRuns(runs, currentIssue).every(run => TERMINAL_RUN_STATUSES.has(run.status)) });
         return {
           currentIssue,
           taskRuns: matchingRuns(runs, currentIssue),
@@ -2976,6 +2984,7 @@ for (const execution of executions) {
         }
       }
     } finally {
+      await responseTiming?.stop();
       await reviewProvider?.close();
       try {
         await writeSanitizedJson(
@@ -3140,6 +3149,7 @@ for (const execution of executions) {
         issueIdentifier: issue?.identifier ?? null,
         runIds: selectedRuns.map((run) => run.id),
         ...(turnTimings ? { turnTimings } : {}),
+        ...(responseTiming ? { latencyProbes: responseTiming.results() } : {}),
         startedAt,
         finishedAt: new Date(finishedAtMs).toISOString(),
         durationMs: finishedAtMs - startedAtMs,
