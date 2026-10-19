@@ -6757,48 +6757,86 @@ describe("ACPX engine run lifecycle corrections (F1: settle every failure after 
     expect(result.summary).toContain("createRuntime boom");
   });
 
-  it("test_runtime_create_failure_stops_bridges_and_releases_staging_lease", async () => {
-    const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
-    const paperclipStop = vi.fn(async () => {});
-    const processStop = vi.fn(async () => {});
-    vi.mocked(startAdapterExecutionTargetPaperclipBridge).mockImplementationOnce(
-      async () => ({ env: {}, stop: paperclipStop }) as never,
-    );
-    vi.mocked(startAdapterExecutionTargetProcessSessionBridge).mockImplementationOnce(
-      async () => ({ agentCommand: null, stop: processStop }) as never,
-    );
-    const stagingLocks = new Map<string, Promise<unknown>>();
-    const execute = createAcpxEngineExecutor({
-      stagingLocks,
-      warmHandles: new Map(),
-      stagedRuntimes: new Map(),
-      createRuntime: () => {
-        throw new Error("createRuntime boom");
-      },
-    });
+  it.each(["create_failure", "relay_respawn", "stalled_receipt"])(
+    "keeps remote provider evidence unknown and releases the staging lease on %s", async (scenario) => {
+      const { stateDir, localCwd, executionTarget } = await setupRemoteSandbox();
+      const paperclipStop = vi.fn(async () => {});
+      const processStop = vi.fn(async () => {});
+      vi.mocked(startAdapterExecutionTargetPaperclipBridge).mockImplementationOnce(
+        async () => ({ env: {}, stop: paperclipStop }) as never,
+      );
+      vi.mocked(startAdapterExecutionTargetProcessSessionBridge).mockImplementationOnce(
+        async () => ({ agentCommand: null, stop: processStop }) as never,
+      );
+      const stagingLocks = new Map<string, Promise<unknown>>();
+      const events: Array<{ eventType: string; payload?: Record<string, unknown> }> = [];
+      let releaseReceipt!: () => void;
+      const receiptGate = new Promise<void>((resolve) => { releaseReceipt = resolve; });
+      let receiptStarted!: () => void;
+      const receiptReady = new Promise<void>((resolve) => { receiptStarted = resolve; });
+      const execute = createAcpxEngineExecutor({
+        stagingLocks,
+        warmHandles: new Map(),
+        stagedRuntimes: new Map(),
+        createRuntime: (options) => {
+          // The bridge models an already-started sandbox provider. This observer
+          // sees only the host relay, including relay respawns.
+          expect(startAdapterExecutionTargetProcessSessionBridge).toHaveBeenCalledTimes(1);
+          expect(stagingLocks.size).toBe(1);
+          if (scenario === "create_failure") throw new Error("createRuntime boom");
+          return buildRuntime(undefined, () => {
+            void options.onAgentSpawn?.({ pid: process.pid, startedAt: new Date().toISOString() });
+            void options.onAgentSpawn?.({ pid: process.pid, startedAt: new Date().toISOString() });
+          }) as never;
+        },
+      });
 
-    const result = await execute({
-      runId: "run-create-fail-remote",
-      agent: { id: "agent-1", companyId: "company-1" },
-      runtime: {},
-      config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir, cwd: localCwd },
-      context: {},
-      authToken: "real-run-jwt",
-      executionTarget,
-      onLog: async () => {},
-      onMeta: async () => {},
-      onEvent: async () => {},
-    } as never);
+      const execution = execute({
+        runId: "run-create-fail-remote",
+        agent: { id: "agent-1", companyId: "company-1" },
+        runtime: {},
+        config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir, cwd: localCwd },
+        context: {},
+        authToken: "real-run-jwt",
+        executionTarget,
+        onLog: async () => {},
+        onMeta: async () => {},
+        onEvent: async (event: { eventType: string; payload?: Record<string, unknown> }) => {
+          events.push(event);
+          if (event.eventType === "run.startup.reuse" && event.payload?.layer === "provider_process"
+            && (scenario !== "stalled_receipt" || processStop.mock.calls.length > 0)) {
+            receiptStarted();
+            if (scenario === "stalled_receipt") await receiptGate;
+          }
+        },
+      } as never);
 
-    expect(result.exitCode).toBe(1);
-    expect(result.resultJson?.phase).toBe("create_runtime");
-    // Both live bridges stop exactly once.
-    expect(paperclipStop).toHaveBeenCalledTimes(1);
-    expect(processStop).toHaveBeenCalledTimes(1);
-    // The per-session staging lease released, so the lock map does not strand the
-    // next same-session run.
-    expect(stagingLocks.size).toBe(0);
-  });
+      let completed = false;
+      void execution.then(() => { completed = true; }, () => {});
+      try {
+        await Promise.race([receiptReady, execution]);
+        // Keep the persistence await open while checking real cleanup and return.
+        await expect.poll(() => completed, { timeout: 500 }).toBe(true);
+        expect(stagingLocks.size).toBe(0);
+      } finally {
+        releaseReceipt();
+        await execution;
+      }
+      const result = await execution;
+      expect(result.exitCode).toBe(scenario === "create_failure" ? 1 : 0);
+      if (scenario === "create_failure") expect(result.resultJson?.phase).toBe("create_runtime");
+      expect(summarizeStartupReuse(events)).toMatchObject({
+        providerLaunchCount: null,
+        layers: { provider_process: { state: "unknown", reason: "evidence_missing" } },
+      });
+      // Both live bridges stop exactly once.
+      expect(paperclipStop).toHaveBeenCalledTimes(1);
+      expect(processStop).toHaveBeenCalledTimes(1);
+      // The per-session staging lease released, so the lock map does not strand the
+      // next same-session run.
+      expect(stagingLocks.size).toBe(0);
+    },
+  );
 
   it.each(["prompt", "metadata", "dispatch"])("records whether provider work could have started on %s failure", async (failure) => {
     const root = await makeTempRoot();

@@ -4466,9 +4466,15 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         // target mutable so a later agent respawn records identity on the current
         // heartbeat instead of the run that originally created the runtime.
         processIdentitySink.current = ctx.onSpawn;
-        providerLaunchCount ??= 0;
-        reusedProviderProcess = Boolean(cached?.handle);
-        processIdentitySink.onLaunch = () => { providerLaunchCount = (providerLaunchCount ?? 0) + 1; };
+        // The process-session bridge starts its provider inside the sandbox.
+        // ACPX observes only the host relay on that lane, so neither its spawn
+        // callback nor a cached relay establishes physical provider reuse.
+        const observesProviderProcess = !prepared.processSessionBridge;
+        providerLaunchCount = observesProviderProcess ? 0 : null;
+        reusedProviderProcess = observesProviderProcess && Boolean(cached?.handle);
+        processIdentitySink.onLaunch = observesProviderProcess
+          ? () => { providerLaunchCount = (providerLaunchCount ?? 0) + 1; }
+          : undefined;
         flushChildStderr(childStderrState);
         childStderrState.logPath = prepared.childStderrLogPath;
         const persistedRuntimeStore = createRuntimeStore({ stateDir: prepared.stateDir });
@@ -5874,7 +5880,10 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
       };
       return await runAttempt(plan);
     } finally {
-      await emitStartupReuse(onReuseEvent, "provider_process", {
+      // Record the in-memory evidence synchronously, but never let diagnostic
+      // persistence hold the staging lease or delay the completed run's return.
+      // The emitter catches sink failures, including a later rejection.
+      void emitStartupReuse(onReuseEvent, "provider_process", {
         state: providerLaunchCount !== null && providerLaunchCount > 0 ? "fresh" : reusedProviderProcess ? "reused" : "unknown",
         reason: providerLaunchCount !== null && providerLaunchCount > 0 ? providerProcessReason : reusedProviderProcess ? "verified_reuse" : "evidence_missing",
       }, providerLaunchCount);

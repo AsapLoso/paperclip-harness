@@ -17,10 +17,14 @@ or `provider_session`. Its state is `reused`, `fresh`, `unknown`, or
 values, or exception messages enter these fields.
 
 Provider-process receipts carry a cumulative `providerLaunchCount` for the run.
-`null` means unobserved; zero requires a physical launch observer. ACPX counts
-initial launches and respawns, including launches during retries. Native Runner
-session events establish session continuity, but do not establish provider-process
-reuse or its launch count. Those values stay unknown without physical evidence.
+`null` means unobserved; zero requires a physical launch observer. Direct ACPX
+processes count initial launches and respawns, including launches during retries.
+On the remote process-session bridge, ACPX observes the host relay rather than
+the sandbox provider. Provider-process reuse and launch counts stay unknown on
+that transport. Native Runner session events establish session continuity, but
+do not establish provider-process reuse or its launch count. Those values stay
+unknown without physical evidence. The final ACPX receipt does not wait for
+persistence, so a stalled diagnostic sink cannot hold the staging lease.
 The existing successful `runner.process.launch` performance receipt establishes
 a fresh Runner process, independently of provider-session continuity.
 
