@@ -885,7 +885,7 @@ describe("AppDefinition catalog", () => {
       "ticktick",
       "xero",
     ]);
-    expect(APP_STORE_DEFINITIONS).toHaveLength(81);
+    expect(APP_STORE_DEFINITIONS).toHaveLength(82);
     const connectableSlugs = new Set(
       CONNECTABLE_APP_DEFINITIONS.map((entry) => entry.slug),
     );
@@ -957,7 +957,7 @@ describe("AppDefinition catalog", () => {
   });
   it("keeps all Google Workspace profiles aligned with their app, endpoint, scopes, ownership, risk, and write policy", () => {
     expect(GOOGLE_WORKSPACE_CONNECTOR_PROFILE_IDS).toEqual(
-      GOOGLE_WORKSPACE_PROFILE_EXPECTATIONS.map((entry) => entry.profile),
+      [...GOOGLE_WORKSPACE_PROFILE_EXPECTATIONS.map((entry) => entry.profile), "workspace.all"],
     );
     expect(Object.keys(GOOGLE_WORKSPACE_CONNECTOR_PROFILES)).toEqual([
       ...GOOGLE_WORKSPACE_CONNECTOR_PROFILE_IDS,

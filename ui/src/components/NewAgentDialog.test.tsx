@@ -121,7 +121,7 @@ it("hides Copilot when its runtime adapter is disabled", async () => {
   await name();
   expect(document.querySelector('input[value="copilot_runtime"]')).toBeNull();
 });
-it.each(["claude", "grok", "opencode"])("preserves explicit experimental %s creation in Advanced", async provider => {
+it.each(["grok", "opencode"])("preserves explicit experimental %s creation in Advanced", async provider => {
   await name();
   await act(async () => (document.querySelector("summary") as HTMLElement).click());
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Experimental harness"]')!.click());

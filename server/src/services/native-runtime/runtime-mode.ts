@@ -139,7 +139,8 @@ export function resolveNativeRuntimeMode(input: {
   } else if (runnerProfile.provider === "grok_bot" && (input.grokEnabled !== true || !input.enabled)) {
     throw ineligible("paperclip_runner_grok_disabled", "Enable Grok Bot, Paperclip Runner, and Assistant connections (MCP) before assigning new work.");
   } else if (runnerProfile.provider !== "codex"
-    && !(runnerProfile.provider === "acpx" && runnerProfile.acpxAgent === "copilot")
+    && !(runnerProfile.provider === "acpx"
+      && (runnerProfile.acpxAgent === "claude" || runnerProfile.acpxAgent === "copilot"))
     && !input.enabled) {
     throw ineligible(
       "paperclip_runner_rollout_disabled",

@@ -54,7 +54,7 @@ describe("resolveNativeRuntimeMode", () => {
     expect(resolveNativeRuntimeMode({ ...eligible, enabled: false,
       adapterConfig: { provider: "acpx", acpxAgent: "copilot", model: "gpt-5.6-luna" },
     })).toMatchObject({ kind: "native", profile: { backend: "acpx_runtime" } });
-    for (const acpxAgent of ["pi", "cursor", "claude", "codex"]) {
+    for (const acpxAgent of ["pi", "cursor", "codex"]) {
       expect(() => resolveNativeRuntimeMode({ ...eligible, enabled: false,
         adapterConfig: { provider: "acpx", acpxAgent, model: "gpt-5.6-luna" },
       })).toThrow(expect.objectContaining({ code: "paperclip_runner_rollout_disabled" }));
@@ -518,6 +518,10 @@ describe("resolveHeartbeatRuntimeMode compatibility", () => {
       adapterType: "paperclip_runner",
       adapterConfig: { provider: "opencode", model: "opencode/gpt-5" },
     })).toThrow(NativeRunnerSelectionError);
+  });
+  it("admits native Claude without enabling other ACPX providers", () => {
+    expect(resolveNativeRuntimeMode({ ...eligible, enabled: false, adapterConfig: { provider: "acpx", acpxAgent: "claude" } })).toMatchObject({ kind: "native", profile: { backend: "acpx_runtime" } });
+    expect(() => resolveNativeRuntimeMode({ ...eligible, enabled: false, adapterConfig: { provider: "acpx", acpxAgent: "grok" } })).toThrow(expect.objectContaining({ code: "paperclip_runner_rollout_disabled" }));
   });
 });
 

@@ -221,6 +221,30 @@ describe("Copilot build-owned installation", () => {
     expect(QUALIFIED_ACPX_PROFILES.copilot.qualificationStatus).toBe("pending");
   });
 
+  it("preserves v22 history while binding the Claude-only preload metadata branch", async () => {
+    const prior = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-mainline-v22-identity.json", import.meta.url), "utf8"));
+    const current = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-mainline-v23-identity.json", import.meta.url), "utf8"));
+    expect(Object.keys(current.declaration).filter(key => current.declaration[key] !== prior.declaration[key]).sort())
+      .toEqual(["agentProfileVersion", "semanticBridgeSourceSha256"]);
+    expect(Object.keys(current.declaration).sort()).toEqual(Object.keys(prior.declaration).sort());
+    expect(isSupportedAcpxProfileVersion("copilot", 22)).toBe(true);
+    const sorted = Object.fromEntries(Object.entries(prior.declaration).sort(([a], [b]) => a.localeCompare(b)));
+    expect(`sha256:${createHash("sha256").update(JSON.stringify(sorted)).digest("hex")}`).toBe(prior.commandDigest);
+    await expect(verifyCopilotInstallation({ ...QUALIFIED_ACPX_PROFILES.copilot,
+      agentProfileVersion: 22, commandDigest: prior.commandDigest })).rejects.toThrow("exact pinned");
+    expect(QUALIFIED_ACPX_PROFILES.copilot.qualificationStatus).toBe("pending");
+  });
+
+  it("preserves v23 history while binding shared observability diagnostic redaction", () => {
+    const prior = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-mainline-v23-identity.json", import.meta.url), "utf8"));
+    const current = JSON.parse(readFileSync(new URL("../../../test/fixtures/copilot-mainline-v24-identity.json", import.meta.url), "utf8"));
+    expect(Object.keys(current.declaration).filter(key => current.declaration[key] !== prior.declaration[key]).sort()).toEqual([
+      "agentProfileVersion", "semanticSidecarSourceSha256",
+    ]);
+    expect(isSupportedAcpxProfileVersion("copilot", 23)).toBe(true);
+    expect(current.commandDigest).not.toBe(prior.commandDigest);
+  });
+
   it("admits the current declaration and binds its source policy, receipts and patch hashes", () => {
     const identity = JSON.parse(readFileSync(new URL(`../../../test/fixtures/copilot-profile-v${QUALIFIED_ACPX_PROFILES.copilot.agentProfileVersion}-identity.json`, import.meta.url), "utf8"));
     expect(identity.declaration.systemInstructionDelivery).toBe(COPILOT_SYSTEM_INSTRUCTION_DELIVERY);
