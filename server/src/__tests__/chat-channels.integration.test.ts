@@ -2706,6 +2706,107 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       await githubChatReviewService(db, f.providerFetch).execute(f.session, "comment", { body: "Final result", idempotencyKey: "legacy-final" });
       expect(original.body).toContain("Final result");
     });
+    it("keeps a newer GitHub request open when its acknowledgement follows older progress", async () => {
+      const f = await toolReplyFixture("github:paperclipai/paperclip:418");
+      const thread = makeThread({ channelId: "paperclipai/paperclip", id: f.conversation.externalThreadId }).thread;
+      await deliverMessage({ callbacks: f.callbacks, endpointId: f.endpoint.id, provider: "github", thread,
+        trigger: "mention", message: makeMessage({ id: "41802", text: "Review again", userId: "42", userName: "octocat", mentioned: true }) });
+      const [link] = await db.select().from(chatMessageLinks).where(and(eq(chatMessageLinks.endpointId, f.endpoint.id), eq(chatMessageLinks.providerMessageId, "41802")));
+      await db.update(chatActions).set({ status: "received", result: null }).where(and(eq(chatActions.deliveryId, link.deliveryId!), eq(chatActions.kind, "github_response_comment")));
+      await githubChatReviewService(db, f.providerFetch).execute(f.session, "update_comment", { body: "Older run progress", idempotencyKey: "old-progress" });
+      await githubResponseCommentService(db, f.providerFetch).tryAcknowledge(link.deliveryId!);
+      const [response] = await db.select().from(chatActions).where(and(eq(chatActions.deliveryId, link.deliveryId!), eq(chatActions.kind, "github_response_comment")));
+      expect(response.result?.final).toBe(false);
+      const [next] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.assignedAgentId,
+        status: "running", runtimeMode: "native", contextSnapshot: await chatWakeContext({
+          endpointId: f.endpoint.id, issueId: f.conversation.issueId, provider: "github", providerMessageId: "41802",
+        }) }).returning();
+      const result = await githubChatReviewService(db, f.providerFetch).execute({ ...f.session, runId: next.id }, "update_comment",
+        { body: "Newer request progress", idempotencyKey: "new-progress" });
+      expect(result.status).toBe("processed");
+      expect([...f.responseComments.values()][0].body).toContain("Newer request progress");
+    });
+    it.each([false, true])("closes a GitHub placeholder after a formal review (legacy receipt: %s)", async legacy => {
+      const f = await publicationRetryFixture();
+      const formal = { id: 991, html_url: "https://github.com/paperclipai/paperclip/pull/418#pullrequestreview-991" };
+      if (legacy) {
+        await db.insert(chatActions).values({ companyId: f.companyId, endpointId: f.endpoint.id, conversationId: f.conversation.id,
+          kind: "github_review_publication", providerActionId: randomUUID(), status: "processed",
+          payload: { operation: "formal_review", session: f.session }, result: { id: String(formal.id), url: formal.html_url } });
+      } else {
+        const config = await f.management.configuration(f.endpoint.id, "owner-user");
+        await f.management.saveConfiguration(f.endpoint.id, { expectedRevision: config.revision,
+          configuration: { ...config.configuration, defaults: { ...config.configuration.defaults,
+            allowApprove: true, publishSummary: false, publishInline: false } } }, "owner-user");
+        f.setSupplementalProviderFetch(async (input, init) => String(input).includes("/pulls/418/reviews")
+          ? Response.json(init?.method === "POST" ? formal : []) : f.provider(input, init));
+        await f.service.execute(f.session, "submit_review", f.assessment, "score-only");
+        await f.service.execute(f.session, "formal_review", { event: "APPROVE", reviewedCommit: f.head, body: "Reviewed", idempotencyKey: "formal-only" });
+      }
+      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, f.run.id));
+      await githubResponseCommentService(db, f.providerFetch).processPending();
+      const body = [...f.responseComments.values()][0].body;
+      expect(body).not.toMatch(/Review queued|Working on this/);
+      expect(body).toContain("paperclip-response-state:final");
+    });
+    it("retires a legacy coalesced GitHub placeholder before replacing its receipt", async () => {
+      const f = await publicationRetryFixture();
+      const original = { ...[...f.responseComments.values()][0] };
+      const [first] = await db.select().from(chatActions).where(and(eq(chatActions.endpointId, f.endpoint.id), eq(chatActions.kind, "github_response_comment")));
+      const thread = makeThread({ channelId: "paperclipai/paperclip", id: f.conversation.externalThreadId }).thread;
+      await deliverMessage({ callbacks: f.callbacks, endpointId: f.endpoint.id, provider: "github", thread,
+        trigger: "mention", message: makeMessage({ id: "41802", text: "Review again", userId: "42", userName: "octocat", mentioned: true }) });
+      const duplicateId = 799999;
+      f.responseComments.set(duplicateId, { ...original, id: duplicateId,
+        body: original.body.replace(/<!-- paperclip-pr-response:[^>]+ -->\n/, ""),
+        html_url: "https://github.com/paperclipai/paperclip/pull/418#issuecomment-799999" });
+      await db.update(chatActions).set({ result: { ...first.result, id: String(duplicateId) } }).where(eq(chatActions.id, first.id));
+      const links = await db.select().from(chatMessageLinks).where(and(eq(chatMessageLinks.endpointId, f.endpoint.id), eq(chatMessageLinks.direction, "inbound")));
+      const latest = await chatWakeContext({ endpointId: f.endpoint.id, issueId: f.conversation.issueId, provider: "github", providerMessageId: "41802" });
+      await db.update(heartbeatRuns).set({ contextSnapshot: { ...latest, wakeCommentIds: links.map(link => link.commentId) } }).where(eq(heartbeatRuns.id, f.run.id));
+      await f.service.execute(f.session, "begin_review", { reviewedCommit: f.head });
+      await f.service.execute(f.session, "submit_review", f.assessment, "coalesced-upgrade");
+      expect(f.responseComments.get(duplicateId)?.body).toContain("current review");
+      expect(f.responseComments.get(duplicateId)?.body).not.toMatch(/Review queued|Working on this/);
+      expect([...f.responseComments.values()].some(comment => comment.body.includes("Advisory review"))).toBe(true);
+    });
+    it("does not handle a blocked new GitHub request with an older run's final reply", async () => {
+      const f = await toolReplyFixture("github:paperclipai/paperclip:418");
+      await githubChatReviewService(db, f.providerFetch).execute(f.session, "comment", { body: "Earlier result", idempotencyKey: "earlier-result" });
+      await db.update(heartbeatRuns).set({ status: "succeeded" }).where(eq(heartbeatRuns.id, f.run.id));
+      await db.update(issues).set({ status: "blocked" }).where(eq(issues.id, f.conversation.issueId!));
+      const thread = makeThread({ channelId: "paperclipai/paperclip", id: f.conversation.externalThreadId }).thread;
+      await deliverMessage({ callbacks: f.callbacks, endpointId: f.endpoint.id, provider: "github", thread,
+        trigger: "mention", message: makeMessage({ id: "41802", text: "New request", userId: "42", userName: "octocat", mentioned: true }) });
+      await githubResponseCommentService(db, f.providerFetch).processPending();
+      const body = [...f.responseComments.values()][0].body;
+      expect(body).toContain("paused");
+      expect(body).not.toContain("has been handled");
+      expect(f.responseComments.size).toBe(1);
+    });
+    it("preserves a final GitHub assessment while settling an incomplete request receipt", async () => {
+      const f = await publicationRetryFixture();
+      await f.service.execute(f.session, "submit_review", f.assessment, "published-assessment");
+      const before = [...f.responseComments.values()][0].body;
+      const [response] = await db.select().from(chatActions).where(and(eq(chatActions.endpointId, f.endpoint.id), eq(chatActions.kind, "github_response_comment")));
+      await db.update(chatActions).set({ result: { ...response.result, final: false } }).where(eq(chatActions.id, response.id));
+      await db.update(heartbeatRuns).set({ status: "succeeded", updatedAt: new Date() }).where(eq(heartbeatRuns.id, f.run.id));
+      await githubResponseCommentService(db, f.providerFetch).processPending();
+      expect([...f.responseComments.values()][0].body).toBe(before);
+      const [settled] = await db.select().from(chatActions).where(eq(chatActions.id, response.id));
+      expect(settled.result?.final).toBe(true);
+    });
+    it("reconciles stopped GitHub work from native identity without legacy wake fields", async () => {
+      const f = await toolReplyFixture("github:paperclipai/paperclip:418");
+      await initializeRunIdentity(db, { companyId: f.companyId, runId: f.run.id, issueId: f.conversation.issueId!,
+        responsibleUserId: "owner-user", messageIds: [String(f.run.contextSnapshot?.wakeCommentId)], cause: "instruction" });
+      await db.update(heartbeatRuns).set({ nativeIssueId: f.conversation.issueId, contextSnapshot: {}, status: "failed", updatedAt: new Date() })
+        .where(eq(heartbeatRuns.id, f.run.id));
+      await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, f.conversation.issueId!));
+      await githubResponseCommentService(db, f.providerFetch).processPending();
+      expect([...f.responseComments.values()][0].body).toContain("stopped before completing");
+      expect(f.responseComments.size).toBe(1);
+    });
     it.each([false, true])("recovers an approved queued GitHub review without another approval (revoked: %s)", async revoked => {
       const f = await publicationRetryFixture();
       let unavailable = true;

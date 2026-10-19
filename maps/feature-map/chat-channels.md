@@ -46,6 +46,9 @@ request for an external bot (`@greptile review`) and verify it creates no wake o
 acknowledgement. Stop execution before a milestone is staged, run maintenance,
 and verify the existing comment reports the stop; saved requests on a blocked
 task show paused state. Preserve newer progress and confirmed or uncertain replies.
+Repeat terminal reconciliation with native identity and no legacy wake fields.
+Check delayed acknowledgements, check-only assessments followed by formal reviews,
+and combined requests with separate pre-upgrade placeholders.
 
 Manual: For each supported provider being changed, send a unique message, verify the intended agent/company receives it, and inspect the actual external reply in the original thread. Repeat with an unlinked/unauthorized sender, duplicate inbound delivery, and one supported attachment. Record provider-specific results separately.
 

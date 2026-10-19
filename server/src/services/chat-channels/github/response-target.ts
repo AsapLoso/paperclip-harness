@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { chatActions, chatConversations, chatDeliveries, chatEndpoints, type Db } from "@paperclipai/db";
-import { forbidden } from "../../../errors.js";
+import { forbidden, HttpError } from "../../../errors.js";
 
 export type GitHubResponseSource = {
   endpoint: typeof chatEndpoints.$inferSelect;
@@ -52,4 +52,30 @@ export async function legacyPullResponseMarkers(db: Db, source: GitHubResponseSo
   const summary = source.repositoryId ? [`<!-- paperclip-review:${createHash("sha256")
     .update(JSON.stringify(`${source.endpoint.id}:${source.repositoryId}:${source.number}`)).digest("hex")} -->`] : [];
   return [...summary, ...rows.filter(row => row.deliveryId).map(row => requestResponseMarker({ ...source, delivery: { ...source.delivery, id: row.deliveryId! } }))];
+}
+
+/** Retire the proven old placeholder before its only receipt is replaced. */
+export async function retireLegacyResponsePlaceholder(
+  source: GitHubResponseSource,
+  result: typeof chatActions.$inferSelect["result"],
+  current: { id: string; url: string },
+  api: { request<T>(path: string, options?: { method?: string; body?: unknown }): Promise<T> },
+  assertCurrent: () => Promise<void>,
+) {
+  if (!result?.id || String(result.id) === current.id || result.final === true) return;
+  if (!/^[1-9][0-9]*$/.test(String(result.id))) throw forbidden("Invalid GitHub response receipt");
+  const item = source.replyId ? "/pulls/comments" : "/issues/comments";
+  try {
+    await assertCurrent();
+    const old = await api.request<{ id: number; body?: string; user?: { login?: string } }>(`${item}/${result.id}`);
+    if (old.user?.login !== source.endpoint.botUsername || !old.body?.includes(requestResponseMarker(source)))
+      throw forbidden("GitHub response is no longer owned by this App");
+    await assertCurrent();
+    await api.request(`${item}/${old.id}`, { method: "PATCH", body: {
+      body: `See the [current review](${current.url}).\n\n${requestResponseMarker(source)}\n<!-- paperclip-response-state:final -->`,
+    } });
+  } catch (error) {
+    const details = error instanceof HttpError ? error.details as { providerStatus?: number } | undefined : undefined;
+    if (details?.providerStatus !== 404) throw error;
+  }
 }
