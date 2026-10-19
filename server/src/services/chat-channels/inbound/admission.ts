@@ -179,6 +179,7 @@ export function createInboundAdmission(db: Db, options: InboundAdmissionOptions)
       const githubAddressedElsewhere =
         endpointAccepting &&
         endpoint.provider === "github" &&
+        !addressed &&
         !githubAutomatic &&
         !githubIssue &&
         (await githubMessageAddressesAnotherRecipient(tx, {

@@ -2635,6 +2635,14 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(await readIssueCommentsByIssueId(f.conversation.issueId!)).toHaveLength(1);
       expect(f.responseWrites).toHaveLength(1);
     });
+    it("retains a provider-verified GitHub mention when its plain text uses an alias", async () => {
+      const f = await subscribedGitHubFixture("github:paperclipai/paperclip:419");
+      const wakeCount = f.wakeup.mock.calls.length;
+      await deliverMessage({ callbacks: f.callbacks, endpointId: f.endpoint.id, provider: "github", thread: f.thread,
+        trigger: "mention", message: makeMessage({ id: "41902", text: "@rendered-alias review", userId: "42", userName: "octocat", mentioned: true }) });
+      expect(f.wakeup).toHaveBeenCalledTimes(wakeCount + 1);
+      expect(await readIssueCommentsByIssueId(f.conversation.issueId!)).toHaveLength(2);
+    });
     it("reconciles a GitHub working comment when execution stops without a publication", async () => {
       const f = await toolReplyFixture("github:paperclipai/paperclip:418");
       await db.update(heartbeatRuns).set({ status: "failed", errorCode: "execution_finalization_deadline_exceeded" })
@@ -3292,7 +3300,8 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       const f = await toolReplyFixture(threadId);
       const service = githubChatReviewService(db, f.providerFetch);
       expect(f.responseWrites).toHaveLength(1);
-      expect(f.responseWrites[0]).toMatchObject({ method: "POST", body: expect.stringContaining("Working on this") });
+      expect(f.responseWrites[0]).toMatchObject({ method: "POST", body: expect.stringContaining(
+        threadId === "github:paperclipai/paperclip:418" ? "Review queued" : "Working on this") });
       expect(f.runtime.endpoints.get(f.endpoint.id)?.reactions).toEqual([]);
       const progress = await service.execute(f.session, "update_comment", { body: "Checking the request", idempotencyKey: "progress-1" });
       expect(progress.status).toBe("processed");
