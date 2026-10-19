@@ -57,3 +57,5 @@ supplemental notices, not USD billing receipts. USD cost remains unknown when
 GitHub supplies no invoice value; included credits are not recorded as measured
 zero-dollar usage. Session-scoped notices cannot establish task completion,
 artifacts, or charges.
+
+Model discovery uses the selected environment and can create a short-lived Daytona sandbox. Copilot model choices refresh when opening a task selector, changing an account or environment, reconnecting, or explicitly refreshing. Background live-data reconciliation does not repeat this probe.

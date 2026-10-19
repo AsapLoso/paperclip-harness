@@ -2290,13 +2290,24 @@ describe("IssueProperties", () => {
       adapterConfig: { provider: "acpx", acpxAgent: "copilot", model: "gpt-5.6-luna" },
       runtimeConfig: { aiConnection: binding } }]);
     mockAgentsApi.adapterModels.mockResolvedValue([{ id: "gpt-5.6-luna", label: "Copilot Luna" }]);
-    const root = renderProperties(container, {
+    const { root, queryClient } = renderPropertiesWithQueryClient(container, {
       issue: createIssue({ assigneeAgentId: "agent-1", assigneeAdapterOverrides: { adapterConfig: { model: "gpt-5.6-luna" } } }),
-      childIssues: [], onUpdate: vi.fn(),
+      childIssues: [], onUpdate: vi.fn(), inline: true,
     });
+    await flush();
+    await flush();
+    expect(mockAgentsApi.adapterModels).not.toHaveBeenCalled();
+    const modelTrigger = findRowTrigger(container, "Model");
+    expect(modelTrigger).toBeDefined();
+    await act(async () => modelTrigger!.click());
     await waitForAssertion(() => expect(mockAgentsApi.adapterModels).toHaveBeenCalledWith("company-1", "paperclip_runner", {
       environmentId: "daytona-1", provider: "acpx", acpxAgent: "copilot", agentId: "agent-1", aiConnection: binding,
     }));
+    await act(async () => { await queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false }); });
+    expect(mockAgentsApi.adapterModels).toHaveBeenCalledTimes(1);
+    await act(async () => modelTrigger!.click());
+    await act(async () => modelTrigger!.click());
+    await waitForAssertion(() => expect(mockAgentsApi.adapterModels).toHaveBeenCalledTimes(2));
     act(() => root.unmount());
   });
 

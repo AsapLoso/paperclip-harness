@@ -48,6 +48,7 @@ function render(onAssigneeChange: (value: string) => void, onSettingsChange: () 
       modelOptionsOverride={useCatalog ? undefined : []} {...props} />
   </QueryClientProvider>;
   flushSync(() => root!.render(insideDialog ? <Dialog defaultOpen><DialogContent aria-describedby={undefined}><DialogTitle>New task</DialogTitle>{picker}</DialogContent></Dialog> : picker));
+  return queryClient;
 }
 
 beforeEach(() => localStorage.clear());
@@ -260,6 +261,31 @@ describe("composer assignee picker", () => {
     expect(choices.some((item) => item.includes("GPT-6 Sol"))).toBe(false);
   });
 
+  it("keeps Copilot discovery passive during reconnect reconciliation and refreshes on opening", async () => {
+    const copilot = { ...agent, adapterType: "paperclip_runner", defaultEnvironmentId: "daytona-1",
+      adapterConfig: { provider: "acpx", acpxAgent: "copilot", model: "gpt-5.6-luna" } } as Agent;
+    const loadModels = vi.spyOn(agentsApi, "adapterModels")
+      .mockResolvedValueOnce([{ id: "gpt-5.6-luna", label: "Copilot Luna" }])
+      .mockResolvedValue([{ id: "gpt-5.6-luna", label: "Updated Copilot Luna" }]);
+    const client = render(vi.fn(), vi.fn(), true, { agents: new Map([[agent.id, copilot]]), settings: null });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(loadModels).not.toHaveBeenCalled();
+    await act(async () => { await client.invalidateQueries({ type: "active" }, { cancelRefetch: false }); });
+    expect(loadModels).not.toHaveBeenCalled();
+    await click("Select model and effort");
+    expect(loadModels).toHaveBeenCalledTimes(1);
+    await act(async () => { await client.invalidateQueries({ type: "active" }, { cancelRefetch: false }); });
+    expect(loadModels).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await click("Select model and effort");
+    expect(loadModels).toHaveBeenCalledTimes(2);
+    await click("Choose exact model");
+    expect(document.body.textContent).toContain("Updated Copilot Luna");
+  });
+
   it("discovers Copilot task models with the assignee connection and environment", async () => {
     const binding = { provider: "github", method: "api_key", mode: "shared", connectionId: "11111111-1111-4111-8111-111111111111", grantId: "33333333-3333-4333-8333-333333333333" } as const;
     const copilot = { ...agent, adapterType: "paperclip_runner", defaultEnvironmentId: "daytona-1",
@@ -270,11 +296,12 @@ describe("composer assignee picker", () => {
     ]);
     render(vi.fn(), vi.fn(), true, { agents: new Map([[agent.id, copilot]]), settings: null });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(loadModels).not.toHaveBeenCalled();
+    await click("Select model and effort");
     expect(loadModels).toHaveBeenCalledWith("company-1", "paperclip_runner", {
       environmentId: "daytona-1", provider: "acpx", poolId: undefined,
       acpxAgent: "copilot", agentId: agent.id, aiConnection: binding,
     });
-    await click("Select model and effort");
     await click("Choose exact model");
     expect(document.body.textContent).toContain("Copilot Luna");
     expect(document.body.textContent).not.toContain("Claude Sonnet");

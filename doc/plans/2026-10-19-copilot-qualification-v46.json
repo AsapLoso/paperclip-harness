@@ -321,7 +321,7 @@
     "tokenGates": "passed",
     "runtimeAndBackendUnchanged": true,
     "profileIdentityCheck": "passed unchanged",
-    "packagingAndFinalSetupProof": "pending"
+    "packagingAndFinalSetupProof": "passed on source f1e4d852d32a7756ece224bfafc9b2b40a6e2056: normal installed startup, ordinary browser onboarding/save/reopen/metadata Test, exact 51-byte downloaded artifact; raw token paste not exercised"
   },
   "billing": {
     "provider": "github",
@@ -333,11 +333,12 @@
     "startup structural root assertion; portal-aware fixture treatment passes without changing visible UX, zero-company or cleanup assertions",
     "two Intel test preparation attempts executed no tests; actual ARM reconnect baseline fails both required states",
     "original CI runner shutdown failures retained; only failed jobs retried",
-    "one archived canary metadata-probe sandbox was explicitly deleted; all six owned IDs independently return404"
+    "one archived canary metadata-probe sandbox was explicitly deleted; all six owned IDs independently return404",
+    "Idle authenticated model discovery created 122 disposable leases; all exact owned IDs independently return404. Failing idle-discovery regression retained; 375 affected component tests pass after Copilot-only query repair."
   ],
   "remainingGates": [
-    "Package the UI-only reconnect repair and verify its final ordinary installation/setup path",
-    "Current-head CI and review",
+    "Normal package and matching image for the UI-only passive-discovery repair; installed idle/open/reconnect proof and final ordinary remote canary",
+    "Fresh current-head CI and review for changed setup/qualification PRs",
     "Independent required code-owner approval and protected merge",
     "Named shipped canary and verification before broader rollout"
   ],
@@ -353,5 +354,23 @@
     "native plan mode",
     "detached work",
     "additional native event presentation"
-  ]
+  ],
+  "passiveModelDiscoveryRepair": {
+    "observedFailure": "Active-query reconciliation repeatedly performed remote Copilot model discovery while the user was idle, creating 122 disposable environment leases",
+    "scope": "Copilot-only static authenticated catalog queries; task selectors discover on opening; explicit account/environment/open/reconnect refresh remains supported",
+    "failingBaselineRetained": true,
+    "affectedComponentTestsPassed": 375,
+    "uiTypecheck": "passed",
+    "tokenGates": "passed",
+    "runtimeProfileIdentity": "passed unchanged",
+    "runtimeAndBackendChanged": false,
+    "ownedSandboxAudit": {
+      "checked": 122,
+      "absent": 122,
+      "present": 0,
+      "errors": 0
+    },
+    "finalInstalledUiAndRemoteCanary": "pending",
+    "infrastructureUsd": null
+  }
 }

@@ -1,3 +1,4 @@
+import { COPILOT_MODEL_DISCOVERY_QUERY_OPTIONS } from "@/lib/copilot-task-model-catalog";
 import type { AgentRunnerChoice } from "@paperclipai/shared";
 import { agentHarnessType } from "@paperclipai/shared";
 import { adaptersApi } from "../api/adapters";
@@ -1008,9 +1009,15 @@ function OnboardingWizardInner({
       environmentId: isCopilot ? resolvedLoginEnvironmentId : null,
       ...(isCopilot ? { provider: "acpx", acpxAgent: "copilot", aiConnection: copilotConnection } : {}),
     }),
+    ...(isCopilot ? COPILOT_MODEL_DISCOVERY_QUERY_OPTIONS : {}),
     enabled: Boolean(createdCompanyId) && effectiveOnboardingOpen && step === 4 && (!isCopilot || Boolean(copilotConnection && copilotEnvironmentReady)),
     retry: false,
   });
+  const requestCopilotModels = Boolean(isCopilot && createdCompanyId && effectiveOnboardingOpen && step === 4 && copilotConnection && copilotEnvironmentReady);
+  const copilotModelScope = JSON.stringify([createdCompanyId, resolvedLoginEnvironmentId, copilotConnection]);
+  useEffect(() => {
+    if (requestCopilotModels) void refreshAdapterModels();
+  }, [requestCopilotModels, copilotModelScope, refreshAdapterModels]);
   const copilotModelReady = Boolean(copilotConnection && copilotEnvironmentReady && !adapterModelsError && !adapterModelsFetching && adapterModels?.some((entry) => entry.id === model.trim()));
   const resolvedLoginEnvironment = useMemo(
     () =>
