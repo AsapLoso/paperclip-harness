@@ -4373,6 +4373,7 @@ html:has(.design-proposal-theme) .design-navigation-group-label {
 .design-task-search:focus-within { border-color: var(--ring); outline: none; box-shadow: var(--focus-ring-shadow); }
 .design-task-search input { min-width: 0; height: 100%; padding: 0; border: none; border-radius: 0; background: transparent; color: var(--foreground); box-shadow: none; font-size: var(--design-page-type-size); line-height: var(--design-page-type-leading); }
 .design-task-search input:focus-visible { outline: none; box-shadow: none; }
+.design-task-search input::-webkit-search-cancel-button { display: none; }
 .design-view-toggle { display: flex; border: var(--task-row-rule-width) solid var(--design-page-control-border); border-radius: var(--design-page-control-radius); }
 .design-view-toggle .design-toolbar-button { height: calc(var(--design-page-control-height) - var(--task-row-rule-width) * 2); border-radius: 0; background: transparent; }
 .design-view-toggle .design-toolbar-button:first-child { border-start-start-radius: var(--design-page-control-radius); border-end-start-radius: var(--design-page-control-radius); }
