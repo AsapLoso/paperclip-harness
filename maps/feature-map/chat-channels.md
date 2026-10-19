@@ -40,6 +40,13 @@ Setup is covered in [connection setup](./connection-setup.md).
 
 Automated: [channel integration](../../server/src/__tests__/chat-channels.integration.test.ts) uses provider fixtures; it does not prove a live Slack, Discord, Teams, Telegram, GitHub, email, or Photon delivery.
 
+GitHub review comment regression (2026-10-19): repeated PR review requests reuse
+one main App comment, including across restart and reconnect. Test a leading
+request for an external bot (`@greptile review`) and verify it creates no wake or
+acknowledgement. Stop execution before a milestone is staged, run maintenance,
+and verify the existing comment reports the stop; saved requests on a blocked
+task show paused state. Preserve newer progress and confirmed or uncertain replies.
+
 Manual: For each supported provider being changed, send a unique message, verify the intended agent/company receives it, and inspect the actual external reply in the original thread. Repeat with an unlinked/unauthorized sender, duplicate inbound delivery, and one supported attachment. Record provider-specific results separately.
 
 For Slack, enable **Require at-mention** and **Allow direct messages**. Send a
