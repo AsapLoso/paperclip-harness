@@ -77,6 +77,8 @@ export async function writeGitHubResponseComment(
   const versionAt = input.versionAt ?? source.delivery.createdAt;
   if (target.result?.id && Date.parse(String(target.result.versionAt)) > versionAt.getTime()) {
     if (!input.acknowledgement) throw conflict("A newer GitHub response has already been published");
+    if (shared) await retireLegacyResponsePlaceholder(source, response.result,
+      { id: String(target.result.id), url: String(target.result.url) }, api, assertCurrent);
     await lease.commit(async tx => { await tx.update(chatActions).set({ status: "processed", result: {
       ...response.result, id: target.result!.id, url: target.result!.url,
       final: response.result?.final === true, code: "acknowledgement_superseded", versionAt: versionAt.toISOString(),
