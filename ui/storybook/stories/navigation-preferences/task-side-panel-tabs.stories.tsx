@@ -48,13 +48,21 @@ function TaskSidePanelTabsPreview({ initialActive }: { initialActive: string }) 
 }
 
 const meta = {
-  title: "Navigation/Task Side Panel Tabs",
+  id: "navigation-task-side-panel-tabs",
+  title: "Oversight and operation/Navigation, profile, and announcements/Product/Task side panel tabs",
   component: TaskSidePanelTabsPreview,
   parameters: {
     docs: {
       description: {
         component: "Resize the preview to see nine starting tabs share the available width. Tabs start at 100px, then shrink together as the pane narrows. Use the plus button to add tabs. Hover the tabs and close buttons to inspect the active fill, clipped-label fade, and round close hover.",
       },
+    },
+    paperclip: {
+      capabilities: ["navigation-preferences/navigation"],
+      status: "current",
+      implementation: "production",
+      boundary: "fixtures",
+      notes: "Uses the shipped task side panel tab component with local tab state. Covers desktop tab sizing, selection, reordering, and closing; task data and persistence are outside this preview.",
     },
   },
 } satisfies Meta<typeof TaskSidePanelTabsPreview>;
