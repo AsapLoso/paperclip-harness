@@ -27,6 +27,16 @@ Open an agent’s model/adapter configuration or the instance adapter settings p
 
 Open an agent run at `/agents/:agentId/runs/:runId` from the agent or task activity.
 
+For latency diagnosis with an operator OTLP endpoint, search the hashed run ID
+without restricting the root span name. Compare workspace preparation with its
+`workspace_<step>` intervals. Measure controller readiness separately through
+`controller.startup.<phase>`. A recovery pause or deployment drain is not model
+execution time. See the [tracing contract](../../doc/observability.md#controller-preparation-phases).
+These source-level diagnostics do not establish a live response-time budget.
+Inspect `native.controller.<phase>` for backend construction, assigned-tool
+discovery and post-turn cleanup. Compare those intervals with the actual model
+turn; do not count a nested discovery interval twice.
+
 ## Driving it with Playwright and the Paperclip CLI
 
 Preconditions: follow the [baseline](./README.md#before-driving-a-journey). Record adapter, model, account, native/legacy runtime, and environment. Capabilities vary; one harness result is not a matrix-wide qualification.
@@ -56,7 +66,21 @@ recipe first. Discovery/creation read company-bound immutable-image evidence
 without allocating a target. A mutable image or snapshot name does not establish
 native compatibility. Then test the actual selected runtime with its selected
 account/model: a legacy CLI or authentication probe alone cannot establish native
-readiness. Missing dependencies, failed authentication, invalid models and
+readiness. For an image-provided Codex harness, verify both final executables
+after concurrent artifact preparation on an eligible provider. Repeat with a
+failed runner probe and confirm the harness work has settled before failure
+returns. Providers without concurrent sync and explicit harness installs remain
+serial. The [real-shell artifact controls](../../server/src/services/native-runtime/native-artifact-preparation.test.ts)
+cover these source contracts; they do not establish live reply latency.
+For remote native Codex with managed GitHub access, inspect the controller
+preparation spans for overlapping GitHub setup and assigned MCP discovery.
+Provider startup must wait for both. Force either preparation to fail while the
+other is pending; confirm that the pending operation settles and run-owned access
+is released before failure returns. Repeat a warm follow-up and retain its actual
+reply time. The [executor controls](../../server/src/services/native-runtime/native-session-executor.test.ts)
+cover ordering, failure drain and credential projection; they do not qualify a
+live response-time target.
+Missing dependencies, failed authentication, invalid models and
 incompatible custom settings must remain actionable errors without silent runner
 switching. Saved unchanged execution can still be tested without applying new
 selection policy, but runtime/account validation must still run.
@@ -124,6 +148,7 @@ state. Readiness observes shutdown; resumed startup cannot reactivate ingress
 after close. These are lifecycle controls, separate from installed provider proof.
 The real daemon readiness and recovery controls require their existing native
 fixtures in hosted CI; passing credential-free controls does not qualify them.
+A primary setup timeout remains a failure even when teardown also fails.
 
 For remote setup shutdown, verify that each durable-state read respects the
 remaining suspension deadline. A late result cannot establish suspension or

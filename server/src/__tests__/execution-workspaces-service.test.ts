@@ -719,25 +719,10 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
   });
 
   it("reports a squash cross-branch delivery as merged_via_pr and suppresses the ancestry warning", async () => {
-    const repoRoot = await createTempRepo();
-    tempDirs.add(repoRoot);
-    const worktreePath = path.join(path.dirname(repoRoot), `paperclip-delivery-${randomUUID()}`);
-    tempDirs.add(worktreePath);
-    await runGit(repoRoot, ["branch", "PAP-16015-delivery"]);
-    await runGit(repoRoot, ["worktree", "add", worktreePath, "PAP-16015-delivery"]);
-    await fs.writeFile(path.join(worktreePath, "delivered.txt"), "delivered\n", "utf8");
-    await runGit(worktreePath, ["add", "delivered.txt"]);
-    await runGit(worktreePath, ["commit", "-m", "Delivered change"]);
-
     const seeded = await seedTerminalWorkspace();
-    pullRequestDetailsByKey.set(`${seeded.companyId}:10623`, {
-      state: "merged",
-      headRef: "PAP-16015-delivery",
-      headSha: await readGit(worktreePath, ["rev-parse", "HEAD"]),
-    });
     await db.update(executionWorkspaces).set({
-      cwd: worktreePath,
-      providerRef: worktreePath,
+      cwd: seeded.worktreePath,
+      providerRef: seeded.worktreePath,
       providerType: "git_worktree",
       baseRef: "main",
       repoUrl: "https://github.com/paperclipai/paperclip.git",
@@ -776,6 +761,101 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
     expect(archived).toMatchObject({ status: "archived", cleanupReason: "issue_terminal" });
     expect(archived?.cleanupEligibleAt).toBeInstanceOf(Date);
   }, 20_000);
+
+  describe("delivery reads after a pooled disconnect", () => {
+    const issueTreeFields = "id,status,completedAt,cancelledAt,updatedAt";
+    const pullRequestProductFields = "id,url,externalId,title,summary,metadata";
+
+    function disconnected() {
+      return new Error("Failed query", {
+        cause: Object.assign(new Error("write CONNECTION_CLOSED"), { code: "CONNECTION_CLOSED" }),
+      });
+    }
+
+    // Fails the first `failuresPerRead` awaits of each delivery read, like a
+    // stale pooled socket, and counts every attempt by projection. Each
+    // attempt builds a fresh query, so recovery must rebuild the read.
+    function flakyDeliveryDb(failuresPerRead: number) {
+      const attempts = new Map<string, number>();
+      const errors: Error[] = [];
+      function failingQuery<T extends object>(query: T, key: string): T {
+        return new Proxy(query, {
+          get(target, prop, receiver) {
+            const value = Reflect.get(target, prop, target);
+            if (typeof value !== "function") return value;
+            if (prop === "then") {
+              return (resolve: (rows: unknown) => unknown, reject: (error: unknown) => unknown) => {
+                const attempt = attempts.get(key) ?? 0;
+                attempts.set(key, attempt + 1);
+                if (attempt >= failuresPerRead) return value.call(target, resolve, reject);
+                const error = disconnected();
+                errors.push(error);
+                return Promise.reject(error).then(resolve, reject);
+              };
+            }
+            return (...args: unknown[]) => {
+              const result = value.apply(target, args);
+              return result === target ? receiver : result;
+            };
+          },
+        });
+      }
+      const flaky = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "select") return Reflect.get(target, prop, receiver);
+          return (fields?: Record<string, unknown>) => {
+            const builder = target.select(fields as never);
+            const key = fields ? Object.keys(fields).join(",") : "";
+            if (key !== issueTreeFields && key !== pullRequestProductFields) return builder;
+            return new Proxy(builder, {
+              get(inner, builderProp) {
+                const value = Reflect.get(inner, builderProp, inner);
+                if (builderProp !== "from" || typeof value !== "function") return value;
+                return (...args: unknown[]) => failingQuery(value.apply(inner, args) as object, key);
+              },
+            });
+          };
+        },
+      });
+      return { db: flaky, attempts, errors };
+    }
+
+    function serviceFor(flakyDb: typeof db) {
+      return executionWorkspaceService(flakyDb, {
+        resolvePullRequestDetails: vi.fn(async (companyId, reference) =>
+          pullRequestDetailsByKey.get(`${companyId}:${reference.number}`)
+          ?? { state: "unknown", headRef: null, headSha: null }
+        ),
+        workspaceReaperCooldownDays: 0,
+      });
+    }
+
+    it("rebuilds the issue tree and pull request reads in close readiness", async () => {
+      const seeded = await seedTerminalWorkspace({ mergedPr: true });
+      const expected = await svc.getCloseReadiness(seeded.executionWorkspaceId);
+      const flaky = flakyDeliveryDb(1);
+
+      const readiness = await serviceFor(flaky.db).getCloseReadiness(seeded.executionWorkspaceId);
+
+      expect(readiness).toEqual(expected);
+      expect(readiness?.deliveryState).toBe("merged_via_pr");
+      expect(flaky.errors).toHaveLength(2);
+      expect(flaky.attempts.get(issueTreeFields)).toBe(2);
+      expect(flaky.attempts.get(pullRequestProductFields)).toBe(2);
+    }, 20_000);
+
+    it("propagates a persistent disconnect after three issue tree attempts", async () => {
+      const seeded = await seedTerminalWorkspace({ mergedPr: true });
+      const flaky = flakyDeliveryDb(3);
+
+      const failure = await serviceFor(flaky.db).getCloseReadiness(seeded.executionWorkspaceId)
+        .then(() => null, (error: unknown) => error);
+      expect(flaky.errors).toHaveLength(3);
+      expect(failure).toBe(flaky.errors[2]);
+      expect(flaky.attempts.get(issueTreeFields)).toBe(3);
+      expect(flaky.attempts.get(pullRequestProductFields)).toBeUndefined();
+    }, 20_000);
+  });
 
   async function seedAncestryTerminalWorkspace(overrides: { updatedAt?: Date } = {}) {
     // Build a worktree whose HEAD equals the base ref, so HEAD is an ancestor
@@ -854,6 +934,58 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
     expect(sweep).toMatchObject({ archived: 1, cleanupFailed: 0 });
     expect(workspace).toMatchObject({ status: "archived", cleanupReason: "issue_terminal" });
   }, 20_000);
+
+  it("reads company-scoped execution configuration without live Git inspection", async () => {
+    const seed = await seedAncestryTerminalWorkspace();
+    const service = executionWorkspaceService(db, {
+      inspectGitCloseReadiness: async () => { throw new Error("Git inspection unavailable"); },
+    });
+    const config = { provisionCommand: "echo prepare", environmentId: randomUUID() };
+    await db.update(executionWorkspaces).set({ metadata: { config } })
+      .where(eq(executionWorkspaces.id, seed.executionWorkspaceId));
+
+    expect(await service.getStoredById(seed.companyId, seed.executionWorkspaceId)).toMatchObject({
+      id: seed.executionWorkspaceId, companyId: seed.companyId,
+      cwd: seed.worktreePath, baseRef: "main", config,
+      deliveryState: "unknown", runtimeServices: [],
+    });
+    await expect(service.getStoredById(randomUUID(), seed.executionWorkspaceId))
+      .rejects.toThrow("Task workspace access is no longer available");
+    expect(await service.getStoredById(seed.companyId, randomUUID())).toBeNull();
+    await expect(service.getById(seed.executionWorkspaceId)).rejects.toThrow("Git inspection unavailable");
+  });
+
+  it("derives ancestry from the existing comparison and stays unknown for an invalid base", async () => {
+    const seed = await seedAncestryTerminalWorkspace();
+    const traceDir = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-git-trace-"));
+    tempDirs.add(traceDir);
+    const tracePath = path.join(traceDir, "git.trace");
+    const previousTrace = process.env.GIT_TRACE;
+    process.env.GIT_TRACE = tracePath;
+    try {
+      const merged = await svc.getCloseReadiness(seed.executionWorkspaceId);
+      expect(merged?.git).toMatchObject({ aheadCount: 0, behindCount: 0, isMergedIntoBase: true });
+      expect(await fs.readFile(tracePath, "utf8")).not.toContain("merge-base");
+
+      await fs.writeFile(path.join(seed.worktreePath, "new.txt"), "Undelivered work\n");
+      await runGit(seed.worktreePath, ["add", "new.txt"]);
+      await runGit(seed.worktreePath, ["commit", "-m", "Undelivered work"]);
+      const ahead = await svc.getCloseReadiness(seed.executionWorkspaceId);
+      expect(ahead?.git).toMatchObject({ aheadCount: 1, behindCount: 0, isMergedIntoBase: false });
+      expect(ahead?.deliveryState).toBe("unmerged");
+
+      await db.update(executionWorkspaces).set({ baseRef: "missing-base" })
+        .where(eq(executionWorkspaces.id, seed.executionWorkspaceId));
+      const unknown = await svc.getCloseReadiness(seed.executionWorkspaceId);
+      expect(unknown?.git).toMatchObject({ aheadCount: null, behindCount: null, isMergedIntoBase: null });
+      expect(unknown?.deliveryState).toBe("unknown");
+      expect(await svc.sweepTerminalWorkspaces()).toMatchObject({ archived: 0, skippedUndelivered: 1 });
+      await expect(fs.access(seed.worktreePath)).resolves.toBeUndefined();
+    } finally {
+      if (previousTrace === undefined) delete process.env.GIT_TRACE;
+      else process.env.GIT_TRACE = previousTrace;
+    }
+  });
 
   it("fails closed before archive when git status inspection is unavailable", async () => {
     const seeded = await seedAncestryTerminalWorkspace();

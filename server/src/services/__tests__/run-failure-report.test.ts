@@ -29,7 +29,7 @@ vi.mock("../../log-redaction.js", async (importOriginal) => {
   return { ...actual, redactCurrentUserText: mockRedactCurrentUserText };
 });
 
-import { reportRunFailure, waitForPendingRunFailureReports } from "../run-failure-report.js";
+import { isNewTerminalRunFailure, reportRunFailure, waitForPendingRunFailureReports } from "../run-failure-report.js";
 import { controllerLeaseLossCancellation } from "../run-cancellation.js";
 import { REDACTED_EVENT_VALUE } from "../../redaction.js";
 
@@ -393,6 +393,89 @@ describeEmbeddedPostgres("reportRunFailure", () => {
     expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
   });
 
+  function codexModelCapacityRun(overrides: Partial<typeof heartbeatRuns.$inferSelect> = {}) {
+    return buildRun({
+      error: "ACP agent reported a terminal service failure.\nSelected model is at capacity. Please try a different model.",
+      errorCode: "codex_transient_upstream", executionStage: "dispatching", exitCode: 1, signal: null,
+      resultJson: {
+        errorFamily: "transient_upstream", stopReason: "adapter_failed",
+        terminalSessionFailure: { category: "service", title: "Selected model is at capacity. Please try a different model." },
+      },
+      ...overrides,
+    });
+  }
+
+  it("keeps a classified Codex ACP model capacity retry local", async () => {
+    await seedCompanyAndAgent({ adapterType: "codex_local" });
+    for (const phase of [undefined, "execute"] as const) await reportRunFailure(db, codexModelCapacityRun(), { phase });
+    expect(mockCaptureRunFailure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: "timed_out" }, { signal: "SIGTERM" }, { errorCode: "acpx_turn_failed" },
+    { resultJson: { errorFamily: "transient_upstream" } },
+    { resultJson: { errorFamily: "provider_quota", terminalSessionFailure: { category: "service" } } },
+    { resultJson: { errorFamily: "transient_upstream", terminalSessionFailure: { category: "connection" } } },
+  ])("reports a Codex transient outcome without typed capacity evidence: %j", async (overrides) => {
+    await seedCompanyAndAgent({ adapterType: "codex_local" });
+    await reportRunFailure(db, codexModelCapacityRun(overrides), { phase: "execute" });
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+  });
+
+  it("reports a Codex ACP model capacity failure during setup or in all mode", async () => {
+    await seedCompanyAndAgent({ adapterType: "codex_local" });
+    await reportRunFailure(db, codexModelCapacityRun(), { phase: "setup" });
+    vi.stubEnv("PAPERCLIP_SENTRY_RUN_FAILURES", "all");
+    await reportRunFailure(db, codexModelCapacityRun(), { phase: "execute" });
+    expect(mockCaptureRunFailure).toHaveBeenCalledTimes(2);
+  });
+
+  function restartInterruptedSetupRun(overrides: Partial<typeof heartbeatRuns.$inferSelect> = {}) {
+    return buildRun({
+      error: "Process lost -- server may have restarted; retrying once",
+      runtimeMode: "legacy", executionStage: "preparing", processPid: null, processGroupId: null,
+      resultJson: {
+        executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+        processLossDiagnostic: {
+          pidRecorded: false, groupRecorded: false, localCheck: "no_identifiers",
+          retryEligible: true, runPredatesObserver: true,
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  it("keeps a retried restart interruption of legacy setup local", async () => {
+    await seedCompanyAndAgent({ adapterType: "paperclip_runner" });
+    await reportRunFailure(db, restartInterruptedSetupRun());
+    expect(mockCaptureRunFailure).not.toHaveBeenCalled();
+  });
+
+  it("reports a retried restart interruption of legacy setup in all mode", async () => {
+    vi.stubEnv("PAPERCLIP_SENTRY_RUN_FAILURES", "all");
+    await seedCompanyAndAgent({ adapterType: "paperclip_runner" });
+    await reportRunFailure(db, restartInterruptedSetupRun());
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { executionStage: "dispatching" }, { runtimeMode: "native" }, { processPid: 4242 },
+    { errorCode: "adapter_failed" },
+    { resultJson: { processLossDiagnostic: { localCheck: "no_identifiers", retryEligible: true, runPredatesObserver: true } } },
+    { resultJson: {
+      executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+      processLossDiagnostic: { localCheck: "no_identifiers", retryEligible: false, runPredatesObserver: true },
+    } },
+    { resultJson: {
+      executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+      processLossDiagnostic: { localCheck: "no_identifiers", retryEligible: true, runPredatesObserver: false },
+    } },
+  ])("reports process loss without restart-before-dispatch evidence: %j", async (overrides) => {
+    await seedCompanyAndAgent({ adapterType: "paperclip_runner" });
+    await reportRunFailure(db, restartInterruptedSetupRun(overrides));
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+  });
+
   async function expiredGrokOffer(input: {
     wakes: Array<{ status: "rejected" | "accepted" | "acknowledged" | "unknown"; httpStatus: number | null }>;
     acceptedAt?: Date | null;
@@ -655,6 +738,40 @@ describeEmbeddedPostgres("reportRunFailure", () => {
     expect(mockCaptureRunFailure).toHaveBeenCalledTimes(1);
   });
 
+  function restrictedWorkspaceSourceRun(overrides: Partial<typeof heartbeatRuns.$inferSelect> = {}) {
+    return buildRun({
+      errorCode: "configuration_incomplete",
+      executionStage: "preparing",
+      resultJson: {
+        configurationIncomplete: { reason: "workspace_source_restricted", issueId: randomUUID() },
+        executionRecovery: { kind: "bootstrap", providerWorkStarted: false },
+      },
+      ...overrides,
+    });
+  }
+
+  it("keeps a restricted shared workspace source actionable on the task", async () => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, restrictedWorkspaceSourceRun(), { phase: "setup" });
+    expect(mockCaptureRunFailure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: "timed_out" }, { errorCode: "setup_failed" }, { executionStage: "executing" }, { exitCode: 1 }, { signal: "SIGTERM" },
+    { resultJson: { configurationIncomplete: { reason: "workspace_source_restricted" } } },
+    { resultJson: { configurationIncomplete: { reason: "workspace_source_restricted" }, executionRecovery: { kind: "bootstrap", providerWorkStarted: true } } },
+  ])("reports restricted-source markers without an exact pre-dispatch outcome: %j", async (overrides) => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, restrictedWorkspaceSourceRun(overrides), { phase: "setup" });
+    expect(mockCaptureRunFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, "execute"] as const)("reports restricted-source markers outside the setup report: %s", async (phase) => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, restrictedWorkspaceSourceRun(), { phase });
+    expect(mockCaptureRunFailure).toHaveBeenCalledTimes(1);
+  });
+
   function localPathConfigurationRun(overrides: Partial<typeof heartbeatRuns.$inferSelect> = {}) {
     return buildRun({
       errorCode: "workspace_validation_failed",
@@ -864,6 +981,26 @@ describeEmbeddedPostgres("reportRunFailure", () => {
       .toBe(`the provider process exited with code ${REDACTED_EVENT_VALUE}`);
   });
 
+  it("waits for the terminal write when a native run is failed pending a same-run retry", async () => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, buildRun({ runtimeMode: "native", nativePhase: "retryable_failure" }));
+    expect(mockCaptureRunFailure).not.toHaveBeenCalled();
+
+    await reportRunFailure(db, buildRun({ runtimeMode: "native", nativePhase: "terminal_failure" }));
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+  });
+
+  it("treats leaving a pending native retry as a new terminal failure", () => {
+    const pending = { status: "failed", runtimeMode: "native", nativePhase: "retryable_failure" } as const;
+    expect(isNewTerminalRunFailure({ ...pending, status: "running", nativePhase: "observed" }, pending)).toBe(true);
+    expect(isNewTerminalRunFailure(pending, { ...pending, nativePhase: "terminal_failure" })).toBe(true);
+    expect(isNewTerminalRunFailure(pending, { ...pending, nativePhase: "committed" })).toBe(true);
+    expect(isNewTerminalRunFailure(pending, pending)).toBe(false);
+    expect(isNewTerminalRunFailure({ ...pending, nativePhase: null }, { ...pending, nativePhase: "terminal_failure" })).toBe(false);
+    expect(isNewTerminalRunFailure({ ...pending, runtimeMode: "legacy" }, { ...pending, runtimeMode: "legacy", nativePhase: null }))
+      .toBe(false);
+  });
+
   it("captures nothing for succeeded, cancelled, and interrupted", async () => {
     await seedCompanyAndAgent();
     for (const status of ["succeeded", "cancelled", "interrupted"] as const) {
@@ -892,6 +1029,27 @@ describeEmbeddedPostgres("reportRunFailure", () => {
     expect(mockCaptureRunFailure.mock.calls[0][0]).toMatchObject({ diagnostics: { execution: {
       cancellationSource: "controller_lease", cancellationExpected: false, controllerLeaseLossCause: "renewal_deadline" } } });
     expect(JSON.stringify(mockCaptureRunFailure.mock.calls)).not.toMatch(/Legacy controller lease lost/);
+  });
+  it("reports bounded lease-loss timings for a setup failure", async () => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, buildRun({ status: "failed", errorCode: "setup_failed", startedAt: new Date(0),
+      finishedAt: new Date(1000), resultJson: { controllerLeaseLoss: { cause: "renewal_deadline",
+        sinceRenewalMs: 61_000.4, renewalPendingMs: 59_000, deadlineLateMs: 1e12, renewalCount: -1, note: "private-note" } } }));
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+    const execution = mockCaptureRunFailure.mock.calls[0][0].diagnostics.execution;
+    expect(execution).toMatchObject({ controllerLeaseLossCause: "renewal_deadline", controllerLeaseSinceRenewalMs: 61_000,
+      controllerLeaseRenewalPendingMs: 59_000, controllerLeaseDeadlineLateMs: 86_400_000 });
+    expect(execution).not.toHaveProperty("controllerLeaseRenewalCount");
+    expect(JSON.stringify(mockCaptureRunFailure.mock.calls)).not.toMatch(/private-note/);
+  });
+  it("drops lease-loss timings without a closed cause", async () => {
+    await seedCompanyAndAgent();
+    await reportRunFailure(db, buildRun({ status: "failed", errorCode: "setup_failed", startedAt: new Date(0),
+      finishedAt: new Date(1000), resultJson: { controllerLeaseLoss: { cause: "forged", sinceRenewalMs: 1 } } }));
+    expect(mockCaptureRunFailure).toHaveBeenCalledOnce();
+    const execution = mockCaptureRunFailure.mock.calls[0][0].diagnostics.execution;
+    expect(execution).not.toHaveProperty("controllerLeaseLossCause");
+    expect(execution).not.toHaveProperty("controllerLeaseSinceRenewalMs");
   });
   it("does not report an operator's Stop as a failure", async () => {
     await seedCompanyAndAgent();
