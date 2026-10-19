@@ -95,6 +95,14 @@ export async function recoverRetainedWorkspace(input: Source & { db: Db; environ
       ${JSON.stringify(state)}::jsonb || jsonb_build_object('requestIds', coalesce(${issueRecoveryActions.evidence}#>'{workspaceRecovery,requestIds}', '[]'::jsonb)))`, updatedAt: new Date() })
       .where(and(eq(issueRecoveryActions.companyId, input.companyId), eq(issueRecoveryActions.id, input.actionId)));
   };
+  // Persist discovery before requesting an old controller's stop proof. The
+  // takeover check must bind to this repair intent even on the first sweep.
+  await db.update(issueRecoveryActions).set({ evidence: sql`jsonb_set(${issueRecoveryActions.evidence}, '{workspaceRecovery}',
+    ${JSON.stringify({ schema: "paperclip.workspace-recovery.v1", runId: input.runId, status: "queued", stage: "verifying_stop",
+      attempt: 0, attemptLimit: 3, requestIds: [] })}::jsonb)`, updatedAt: new Date() })
+    .where(and(eq(issueRecoveryActions.companyId, input.companyId), eq(issueRecoveryActions.sourceIssueId, input.issueId),
+      eq(issueRecoveryActions.id, input.actionId), sql`${issueRecoveryActions.evidence}->>'runId' = ${input.runId}`,
+      sql`not (${issueRecoveryActions.evidence} ? 'workspaceRecovery')`));
   const owned = await withNativeWorkspaceFinalizationOwnership({ db, companyId: input.companyId, runId: input.runId,
     retainedRepairActionId: input.actionId }, async ownership => {
     const [action] = await db.select().from(issueRecoveryActions).where(and(eq(issueRecoveryActions.companyId, input.companyId), eq(issueRecoveryActions.id, input.actionId)));
@@ -248,14 +256,8 @@ export async function scheduleRecoveredWorkspaceCleanup(db: Db, run: typeof hear
     sql`${environmentLeases.metadata} = ${JSON.stringify(lease.metadata)}::jsonb`,
     sql`${environmentLeases.metadata}->>'workspaceRecoveryCleanup' is null`));
 }
-/** Bounded discovery shares the periodic recovery lifecycle. A repaired source
- * is reconsidered for saved USER input only, including after a lost callback. */
-export async function reconcileRetainedWorkspaces(db: Db, runtime: EnvironmentRuntimeService,
-  onRecovered: (run: typeof heartbeatRuns.$inferSelect) => Promise<void>) {
-  let pending = workInFlight.get(db);
-  if (!pending) { pending = new Set(); workInFlight.set(db, pending); }
-  if (pending.size >= 2) return;
-  const page = (cursor?: string) => db.select({ action: issueRecoveryActions, run: heartbeatRuns }).from(issueRecoveryActions)
+export function retainedWorkspaceCandidates(db: Db, cursor?: string) {
+  return db.select({ action: issueRecoveryActions, run: heartbeatRuns }).from(issueRecoveryActions)
     .innerJoin(heartbeatRuns, and(eq(heartbeatRuns.companyId, issueRecoveryActions.companyId), eq(heartbeatRuns.id,
       sql`case when ${issueRecoveryActions.evidence}->>'runId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
         then (${issueRecoveryActions.evidence}->>'runId')::uuid end`)))
@@ -267,6 +269,7 @@ export async function reconcileRetainedWorkspaces(db: Db, runtime: EnvironmentRu
         (${issueRecoveryActions.evidence}#>>'{workspaceRecovery,blockerCode}' = 'stop' and exists (
           select 1 from ${environmentLeases} where ${environmentLeases.companyId} = ${heartbeatRuns.companyId}
           and ${environmentLeases.heartbeatRunId} = ${heartbeatRuns.id} and ${environmentLeases.status} = 'released'
+          and ${environmentLeases.id}::text = ${heartbeatRuns.runnerProfileJson}#>>'{nativeWorkspaceSync,leaseId}'
           and ${environmentLeases.cleanupStatus} = 'success' and ${environmentLeases.metadata}->'remoteExecutionTermination'->>'state' = 'stopped')))`,
       sql`(${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}' is distinct from 'recovered' or exists (
         select 1 from ${agentWakeupRequests} where ${agentWakeupRequests.companyId} = ${issueRecoveryActions.companyId}
@@ -274,8 +277,17 @@ export async function reconcileRetainedWorkspaces(db: Db, runtime: EnvironmentRu
         and ${agentWakeupRequests.payload}->>'issueId' = ${issueRecoveryActions.sourceIssueId}::text))`,
       cursor ? gt(issueRecoveryActions.id, cursor) : undefined,
     )).orderBy(asc(issueRecoveryActions.id)).limit(5);
-  let rows = await page(cursors.get(db));
-  if (!rows.length) rows = await page();
+}
+
+/** Bounded discovery shares the periodic recovery lifecycle. A repaired source
+ * is reconsidered for saved USER input only, including after a lost callback. */
+export async function reconcileRetainedWorkspaces(db: Db, runtime: EnvironmentRuntimeService,
+  onRecovered: (run: typeof heartbeatRuns.$inferSelect) => Promise<void>) {
+  let pending = workInFlight.get(db);
+  if (!pending) { pending = new Set(); workInFlight.set(db, pending); }
+  if (pending.size >= 2) return;
+  let rows = await retainedWorkspaceCandidates(db, cursors.get(db));
+  if (!rows.length) rows = await retainedWorkspaceCandidates(db);
   for (const { action, run } of rows) {
     if (pending.size >= 2) break;
     cursors.set(db, action.id);

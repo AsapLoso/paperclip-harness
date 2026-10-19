@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { agents, companies, createDb, environmentLeases, environments, heartbeatRuns, issueComments, issueRecoveryActions, issues, nativeRunFinalizations, nativeRunResults, agentWakeupRequests, workspaceOperations } from "@paperclipai/db";
 import type { AdapterSandboxExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
@@ -11,11 +11,12 @@ import type { EnvironmentLease } from "@paperclipai/shared";
 import { startEmbeddedPostgresTestDatabase } from "../__tests__/helpers/embedded-postgres.js";
 import { prepareNativeWorkspaceSync } from "./native-runtime/native-workspace-sync.js";
 import { remoteTerminationReceipt } from "./remote-execution-termination.js";
-import { recoverRetainedWorkspace, requestWorkspaceRecovery, scheduleRecoveredWorkspaceCleanup, reconcileRetainedWorkspaces } from "./workspace-recovery.js";
+import { recoverRetainedWorkspace, requestWorkspaceRecovery, scheduleRecoveredWorkspaceCleanup, reconcileRetainedWorkspaces, retainedWorkspaceCandidates } from "./workspace-recovery.js";
 import * as activity from "./activity-log.js";
 import { heartbeatService } from "./heartbeat.js";
 import { hasVerifiedWorkspaceRepair, readWorkspaceRecovery } from "./workspace-recovery-receipt.js";
 import { getExecutionBlocker } from "./execution-blocker.js";
+import * as workerProof from "./native-runtime/native-workspace-platform-proof.js";
 const targets = vi.hoisted(() => new Map<string, AdapterSandboxExecutionTarget>());
 vi.mock("./environment-execution-target.js", () => ({ resolveEnvironmentExecutionTarget: async (input: { leaseId: string }) => targets.get(input.leaseId) }));
 
@@ -195,6 +196,28 @@ describe("automatic retained workspace recovery", () => {
       workspaceRecovery: { status: "blocked", canRetry: false, message: expect.stringContaining("previous session stopped") } });
   }, 30_000);
 
+  it("binds the first automatic repair to authoritative old-controller stop proof without an accepted result", async () => {
+    const f = await seed("legacy");
+    const worker = { provider: "railway" as const, projectId: randomUUID(), environmentId: randomUUID(), serviceId: randomUUID(), deploymentId: randomUUID() };
+    const prior = { token: randomUUID(), hostname: "previous-controller", pid: 123, processStartedAt: new Date().toISOString(), worker };
+    const source = await run(f.runId);
+    await db.update(heartbeatRuns).set({ runnerProfileJson: { ...source.runnerProfileJson, nativeWorkspaceFinalizationOwner: prior } }).where(eq(heartbeatRuns.id, f.runId));
+    // This is the verified platform boundary. Signature and identity validation
+    // have independent coverage in native-workspace-platform-proof.test.ts.
+    const proof = vi.spyOn(workerProof, "requestWorkspaceWorkerStopProof").mockResolvedValue({
+      v: 1, iss: "paperclip-cloud", aud: "paperclip-workspace-worker-stop/v1", sub: "test-stack", stopped: true,
+      iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 30,
+      runId: f.runId, ownerToken: prior.token, worker,
+    });
+    try {
+      await recoverRetainedWorkspace(f.input);
+      expect(proof).toHaveBeenCalledWith({ runId: f.runId, ownerToken: prior.token, worker });
+      expect(await hasVerifiedWorkspaceRepair(db, await run(f.runId))).toBe(true);
+      expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
+      expect(await db.select().from(nativeRunResults).where(eq(nativeRunResults.companyId, f.companyId))).toHaveLength(0);
+    } finally { proof.mockRestore(); }
+  }, 30_000);
+
   it("retries persistence after rollback without repeating or discarding the copied work", async () => {
     const f = await seed();
     const failCommit = vi.spyOn(activity, "persistActivity").mockRejectedValueOnce(new Error("Interrupted receipt transaction"));
@@ -235,5 +258,17 @@ describe("automatic retained workspace recovery", () => {
     await expect.poll(() => onRecovered.mock.calls.length).toBeGreaterThan(0);
     expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, f.companyId))).toHaveLength(0);
     expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
+  }, 30_000);
+
+  it("uses the retained-source index rather than scanning unrelated recovery history", async () => {
+    const f = await seed();
+    await db.insert(issueRecoveryActions).values(Array.from({ length: 3000 }, (_, i) => ({
+      companyId: f.companyId, sourceIssueId: f.issueId, status: "resolved", kind: "active_run_watchdog",
+      cause: "unrelated_history", fingerprint: `history-${i}`, nextAction: "", evidence: {},
+    })));
+    await db.execute(sql`analyze ${issueRecoveryActions}`);
+    const plan = await db.execute(sql`explain (analyze, format json) ${retainedWorkspaceCandidates(db)}`);
+    expect(JSON.stringify(plan)).toContain("issue_recovery_actions_retained_workspace_recovery_idx");
+    expect((await retainedWorkspaceCandidates(db)).length).toBeLessThanOrEqual(5);
   }, 30_000);
 });

@@ -3401,6 +3401,20 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       if (phase === "after_summary") {
         const [review] = await readChatGitHubReviewsByEndpointId(f.endpoint.id);
         expect(review.publicationReceipts.summary).toMatchObject({ id: String([...f.responseComments.keys()][0]) });
+        const writes = f.responseWrites.length;
+        const { buildExecutionContinuation } = await import("../services/execution-continuation.js");
+        const continuation = await buildExecutionContinuation({ db, companyId: f.companyId, issueId: f.session.issueId,
+          agentId: f.assignedAgentId, context: { previousRunId: f.run.id }, summary: null, exposeLowTrustRaw: false });
+        expect(continuation.completedActions).toContainEqual(expect.objectContaining({
+          runId: f.run.id, operationId: "github_review_publication", result: expect.objectContaining({
+            repository: review.repository, pullNumber: review.pullNumber, headSha: review.headSha,
+            part: "summary", publicationId: review.publicationReceipts.summary.id, url: review.publicationReceipts.summary.url,
+          }),
+        }));
+        const { githubRecoveryReceipts } = await import("../services/chat-channels/github/recovery-receipts.js");
+        expect(await githubRecoveryReceipts(db, randomUUID(), f.session.issueId)).toEqual([]);
+        expect(await githubRecoveryReceipts(db, f.companyId, randomUUID())).toEqual([]);
+        expect(f.responseWrites).toHaveLength(writes);
       }
     });
     it("does not invent a GitHub completion response when the agent sends no tool reply", async () => {
