@@ -4151,6 +4151,7 @@ mod tests {
             permission_mode: Some(original_descriptor.permission_mode),
             mode: original_descriptor.mode.clone(),
             pi_thinking_level: None,
+            claude_effort: None,
             provider_lifetime_fence_candidates: [60_001, 60_002, 60_003],
         };
         let operations = Vec::new();
