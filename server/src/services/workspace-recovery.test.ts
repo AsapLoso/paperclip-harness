@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, companies, createDb, environmentLeases, environments, heartbeatRuns, issueComments, issueRecoveryActions, issues, nativeRunFinalizations, nativeRunResults, agentWakeupRequests, workspaceOperations } from "@paperclipai/db";
+import { agents, approvals, budgetPolicies, costEvents, issueApprovals, issueTreeHolds, issueTreeHoldMembers, companies, createDb, environmentLeases, environments, heartbeatRuns, issueComments, issueRecoveryActions, issues, nativeRunFinalizations, nativeRunResults, agentWakeupRequests, workspaceOperations } from "@paperclipai/db";
 import type { AdapterSandboxExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
 import type { EnvironmentLease } from "@paperclipai/shared";
 import { startEmbeddedPostgresTestDatabase } from "../__tests__/helpers/embedded-postgres.js";
@@ -145,6 +145,38 @@ describe("automatic retained workspace recovery", () => {
     expect(await hasVerifiedWorkspaceRepair(db, await run(f.runId))).toBe(true);
   }, 30_000);
 
+  it("resumes an interrupted file export from persisted state with a new database connection", async () => {
+    const f = await seed(), target = targets.get(f.lease.id)!;
+    const execute = target.runner!.execute;
+    let interrupted = false, interruptExports = true;
+    target.runner!.execute = async input => {
+      const output = await execute(input);
+      if (interruptExports && input.args?.some(arg => arg.includes("tar -cf"))) {
+        interrupted = true;
+        throw new Error("File export transport interrupted after archive creation");
+      }
+      return output;
+    };
+    await recoverRetainedWorkspace(f.input);
+    expect(interrupted).toBe(true);
+    expect(readWorkspaceRecovery((await action(f.actionId)).evidence)).toMatchObject({ status: "queued", stage: "restoring_files", attempt: 1 });
+    expect(await hasVerifiedWorkspaceRepair(db, await run(f.runId))).toBe(false);
+    expect(await readFile(path.join(f.remote, "saved.txt"), "utf8")).toBe("finished work\n");
+    interruptExports = false;
+    await writeFile(path.join(f.host, "later.txt"), "work saved during the interruption\n");
+    const pending = await action(f.actionId);
+    await db.update(issueRecoveryActions).set({ evidence: { ...pending.evidence,
+      workspaceRecovery: { ...readWorkspaceRecovery(pending.evidence), retryAt: 0 } } }).where(eq(issueRecoveryActions.id, f.actionId));
+    const restarted = createDb(temporary.connectionString);
+    try {
+      await recoverRetainedWorkspace({ ...f.input, db: restarted });
+      expect(await hasVerifiedWorkspaceRepair(restarted, await run(f.runId))).toBe(true);
+      expect(readWorkspaceRecovery((await action(f.actionId)).evidence)).toMatchObject({ status: "recovered", attempt: 2 });
+      expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
+      expect(await readFile(path.join(f.host, "later.txt"), "utf8")).toBe("work saved during the interruption\n");
+    } finally { await restarted.$client.end(); target.runner!.execute = execute; }
+  }, 30_000);
+
   it("rejects a recovery request outside the task company", async () => {
     const f = await seed();
     await expect(requestWorkspaceRecovery({ ...f.input, companyId: randomUUID(), actorId: "user", idempotencyKey: randomUUID() })).rejects.toThrow("changed");
@@ -181,6 +213,44 @@ describe("automatic retained workspace recovery", () => {
     expect((await db.select().from(environmentLeases).where(eq(environmentLeases.id, f.lease.id)))[0]).toMatchObject({
       status: "pending_cleanup", leasePolicy: "ephemeral", metadata: { workspaceRecoveryCleanup: { runId: f.runId } } });
     expect(f.runtime.retryPendingSandboxTeardown).toHaveBeenCalledOnce();
+    expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
+  }, 30_000);
+
+  it.each(["pause", "cancelled", "approval", "budget", "reassigned"])("keeps the %s gate after files recover", async gate => {
+    const f = await seed(), commentId = randomUUID(), queueId = randomUUID();
+    const source = await run(f.runId);
+    const [occupied] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: source.agentId, status: "running" }).returning();
+    await db.insert(issueComments).values({ id: commentId, companyId: f.companyId, issueId: f.issueId,
+      authorType: "user", authorUserId: "board", body: "Confirm the existing publication. Do not publish it again." });
+    await db.insert(agentWakeupRequests).values({ id: queueId, companyId: f.companyId, agentId: source.agentId,
+      source: "automation", reason: "issue_commented", status: "deferred_issue_execution", requestedByActorType: "user", requestedByActorId: "board",
+      payload: { issueId: f.issueId, commentId, _paperclipWakeContext: { issueId: f.issueId, wakeReason: "issue_commented", wakeCommentIds: [commentId], wakeCommentId: commentId } } });
+    await recoverRetainedWorkspace(f.input);
+    expect(await hasVerifiedWorkspaceRepair(db, await run(f.runId))).toBe(true);
+    if (gate === "pause") {
+      const holdId = randomUUID();
+      await db.insert(issueTreeHolds).values({ id: holdId, companyId: f.companyId, rootIssueId: f.issueId, mode: "pause", status: "active" });
+      await db.insert(issueTreeHoldMembers).values({ companyId: f.companyId, holdId, issueId: f.issueId, depth: 0, issueTitle: "Recover existing work", issueStatus: "blocked" });
+    }
+    if (gate === "cancelled") await db.update(issues).set({ status: "cancelled" }).where(eq(issues.id, f.issueId));
+    if (gate === "approval") {
+      const approvalId = randomUUID();
+      await db.insert(approvals).values({ id: approvalId, companyId: f.companyId, type: "hire_agent", status: "pending", payload: {} });
+      await db.insert(issueApprovals).values({ companyId: f.companyId, issueId: f.issueId, approvalId });
+    }
+    if (gate === "budget") {
+      await db.insert(budgetPolicies).values({ companyId: f.companyId, scopeType: "agent", scopeId: source.agentId,
+        windowKind: "calendar_month_utc", amount: 100, hardStopEnabled: true });
+      await db.insert(costEvents).values({ companyId: f.companyId, agentId: source.agentId,
+        provider: "test", model: "test", costCents: 100, occurredAt: new Date(), billingType: "metered_api" });
+    }
+    if (gate === "reassigned") await db.update(issues).set({ assigneeAgentId: null, assigneeUserId: "board" }).where(eq(issues.id, f.issueId));
+    const admission = heartbeatService(db).resumeRemoteStopComments(await run(f.runId));
+    if (gate === "budget") await expect(admission).rejects.toThrow("budget hard-stop");
+    else await admission;
+    expect(await db.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.companyId, f.companyId),
+      sql`${heartbeatRuns.id} not in (${f.runId}::uuid, ${occupied.id}::uuid)`, inArray(heartbeatRuns.status, ["queued", "running"])))).toHaveLength(0);
+    expect((await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.id, queueId)))[0].runId).toBeNull();
     expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
   }, 30_000);
 
