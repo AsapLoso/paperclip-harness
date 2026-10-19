@@ -53,7 +53,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: "Resize the preview to see nine starting tabs across a wider pane. Use the plus button to add tabs. Hover the tabs and close buttons to inspect the active fill, content-sized width, clipped-label fade, and round close hover.",
+        component: "Resize the preview to see nine starting tabs share the available width. Tabs start at 100px, then shrink together as the pane narrows. Use the plus button to add tabs. Hover the tabs and close buttons to inspect the active fill, clipped-label fade, and round close hover.",
       },
     },
   },

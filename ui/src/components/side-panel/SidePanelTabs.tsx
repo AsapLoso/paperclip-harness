@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -67,7 +68,7 @@ function SortableSidePanelTab({
       }}
       className={cn(
         appearance === "streamlined-task"
-          ? "relative mx-0.75 flex w-max min-w-0 max-w-(--side-panel-streamlined-tab-max-width) shrink-0 items-center"
+          ? "side-panel-streamlined-tab relative mx-0.75 flex w-max max-w-(--side-panel-streamlined-tab-max-width) shrink items-center"
           : "relative",
         sortable.isDragging && (appearance === "streamlined-task" ? "opacity-0" : "z-20 opacity-80"),
       )}
@@ -327,9 +328,11 @@ export function SidePanelTabs({
             <div className={cn(
               "flex items-center",
               appearance === "streamlined-task"
-                ? "w-max gap-0"
+                ? "w-full min-w-0 justify-start gap-0"
                 : "min-w-max gap-1 py-1",
-            )}>
+            )} style={appearance === "streamlined-task"
+              ? { "--side-panel-streamlined-tab-count": Math.max(tabs.length, 1) } as CSSProperties
+              : undefined}>
               {tabs.map((tab, index) => (
                 <SortableSidePanelTab
                   key={tab.id}

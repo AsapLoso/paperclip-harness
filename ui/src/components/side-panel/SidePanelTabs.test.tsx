@@ -101,7 +101,7 @@ describe("SidePanelTabs", () => {
     expect(separators[0]?.parentElement?.querySelector('[data-side-panel-tab-target="inactive-two"]')).not.toBeNull();
   });
 
-  it("highlights the active Streamlined tab and caps content-sized tabs", () => {
+  it("highlights the active Streamlined tab and lets capped tabs shrink together", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -136,7 +136,9 @@ describe("SidePanelTabs", () => {
     expect(propertiesWrapper?.style.width).toBe("");
     expect(propertiesWrapper?.parentElement?.className)
       .toContain("mx-0.75");
-    expect(propertiesWrapper?.parentElement?.className).toContain("w-max");
+    expect(propertiesWrapper?.parentElement?.className).toContain("side-panel-streamlined-tab");
+    expect(propertiesWrapper?.parentElement?.className).toContain("shrink");
+    expect(propertiesWrapper?.parentElement?.className).not.toContain("shrink-0");
     expect(propertiesWrapper?.parentElement?.className)
       .toContain("max-w-(--side-panel-streamlined-tab-max-width)");
 
@@ -148,8 +150,9 @@ describe("SidePanelTabs", () => {
     const tabList = container.querySelector<HTMLElement>('[role="tablist"]');
     expect(tabList?.className).toContain("overflow-x-auto");
     expect(tabList?.className).not.toContain("overflow-hidden");
-    expect(tabList?.firstElementChild?.className).toContain("w-max");
-    expect(tabList?.firstElementChild?.className).not.toContain("min-w-full");
+    expect(tabList?.firstElementChild?.className).toContain("w-full");
+    expect(tabList?.firstElementChild?.className).toContain("justify-start");
+    expect((tabList?.firstElementChild as HTMLElement)?.style.getPropertyValue("--side-panel-streamlined-tab-count")).toBe("2");
     const planCloseButton = container.querySelector<HTMLButtonElement>('button[aria-label="Close Implementation plan"]');
     expect(planCloseButton?.className).toContain("opacity-0");
     expect(planCloseButton?.className).toContain("right-0.5");
@@ -167,7 +170,7 @@ describe("SidePanelTabs", () => {
     expect(addButton?.className).toContain("hover:bg-accent");
   });
 
-  it("keeps a lone Streamlined tab sized to its label and below the same cap", () => {
+  it("keeps a lone Streamlined tab at the preferred minimum and below the cap", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -195,9 +198,10 @@ describe("SidePanelTabs", () => {
     const propertiesWrapper = container.querySelector<HTMLElement>(
       '[data-side-panel-tab-wrapper="properties"]',
     )?.parentElement;
-    expect(tabTrack?.className).toContain("w-max");
-    expect(tabTrack?.className).not.toContain("w-full");
+    expect(tabTrack?.className).toContain("w-full");
+    expect(tabTrack?.className).toContain("justify-start");
     expect(propertiesWrapper?.className).toContain("w-max");
+    expect(propertiesWrapper?.className).toContain("side-panel-streamlined-tab");
     expect(propertiesWrapper?.className).toContain("max-w-(--side-panel-streamlined-tab-max-width)");
     expect(propertiesWrapper?.className).not.toContain("flex-1");
   });
