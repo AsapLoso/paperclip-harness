@@ -94,7 +94,7 @@ export function summarizeStartupReuse(events: readonly { eventType?: string; pay
         ? Math.max(providerLaunchCount ?? 0, count) : null;
     }
   }
-  if (providerLaunchCount !== null && providerLaunchCount > 0) {
+  if (providerLaunchCount !== null && providerLaunchCount > 0 && layers.provider_process.state !== "fresh") {
     layers.provider_process = { state: "fresh", reason: "created" };
   }
   const applicable = Object.values(layers).filter(layer => layer.state !== "not_applicable");

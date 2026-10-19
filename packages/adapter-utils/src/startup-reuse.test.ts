@@ -23,7 +23,7 @@ describe("startup reuse evidence", () => {
     const events = fullReuse().map(event => event.payload.layer === "provider_process"
       ? receipt("provider_process", "fresh", "configuration_changed", 2) : event);
     expect(summarizeStartupReuse(events)).toMatchObject({ warmth: "partial_reuse", providerLaunchCount: 2,
-      layers: { provider_session: { state: "reused" }, provider_process: { state: "fresh" } } });
+      layers: { provider_session: { state: "reused" }, provider_process: { state: "fresh", reason: "configuration_changed" } } });
   });
   it("requires evidence beyond session continuity, follow-up turns and old timing spans", () => {
     expect(summarizeStartupReuse([{ eventType: "run.performance.span", payload: { span: "runner.session.resume", mode: "warm", sessionId: "same" } }]))

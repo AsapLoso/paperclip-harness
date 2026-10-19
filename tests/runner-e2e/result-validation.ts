@@ -1,5 +1,5 @@
 import { connectionCheckpoints, connectionEvidencePasses, connectionRunSignals } from "./connection-evidence.js";
-import { STARTUP_REUSE_LAYERS, STARTUP_REUSE_REASONS } from "@paperclipai/adapter-utils/startup-reuse";
+import { STARTUP_REUSE_LAYERS, STARTUP_REUSE_REASONS } from "../../packages/adapter-utils/src/startup-reuse.js";
 import type { RunnerE2EResult } from "./types.js";
 
 type Rule = (value: unknown, at: string) => void;

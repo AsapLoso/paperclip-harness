@@ -1,5 +1,5 @@
 import { isIncompleteFirstTaskResult, renderCaseOutcome } from "./case-outcome.js";
-import { STARTUP_REUSE_LAYERS, summarizeStartupReuse } from "@paperclipai/adapter-utils/startup-reuse";
+import { STARTUP_REUSE_LAYERS, summarizeStartupReuse } from "../../packages/adapter-utils/src/startup-reuse.js";
 import { renderFirstTaskDetails } from "./first-task-report.js";
 import {
   discoverReportCatalog,

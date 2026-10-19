@@ -4437,7 +4437,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         // target mutable so a later agent respawn records identity on the current
         // heartbeat instead of the run that originally created the runtime.
         processIdentitySink.current = ctx.onSpawn;
-        providerLaunchCount = 0;
+        providerLaunchCount ??= 0;
         reusedProviderProcess = Boolean(cached?.handle);
         processIdentitySink.onLaunch = () => { providerLaunchCount = (providerLaunchCount ?? 0) + 1; };
         flushChildStderr(childStderrState);
