@@ -14,8 +14,12 @@ const Context = createContext<RecoveryValue | null>(null);
 type RetryValue = { actionId: string; runId: string; unavailableReason: string | null; onRetry: () => Promise<void> };
 const RetryContext = createContext<RetryValue | null>(null);
 
+export function useCurrentWorkspaceRetry() {
+  return useContext(RetryContext);
+}
+
 export function useWorkspaceRetry(metadata: IssueCommentMetadata | null | undefined) {
-  const value = useContext(RetryContext);
+  const value = useCurrentWorkspaceRetry();
   return value && metadata?.sections.some(section => section.rows.some(row => row.type === "key_value" && row.value === value.actionId))
     ? value : null;
 }

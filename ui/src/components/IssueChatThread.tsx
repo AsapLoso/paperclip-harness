@@ -1,5 +1,5 @@
 import { resolveIssueChatHumanAuthor } from "@/lib/issue-chat-human-author";
-import { useWorkspaceBaseRefRecovery, useWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
+import { useCurrentWorkspaceRetry, useWorkspaceBaseRefRecovery, useWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
 import { WorkspaceRetryButton } from "./WorkspaceRetryButton";
 import { WorkspaceBaseRefRecoveryNotice } from "./WorkspaceBaseRefRecoveryNotice";
 import { DispositionRecoveryNotice, useDispositionRecoverySnapshot } from "./DispositionRecoveryNotice";
@@ -5850,6 +5850,7 @@ export function IssueChatThread({
   externalReferences,
   linkCaseReferences = false,
 }: IssueChatThreadProps) {
+  const workspaceRetry = useCurrentWorkspaceRetry();
   const location = useLocation();
   const lastScrolledHashRef = useRef<string | null>(null);
   const didInitialHashScrollDecisionRef = useRef(false);
@@ -6637,7 +6638,7 @@ export function IssueChatThread({
                       onResume={onResumeFromBacklog}
                       resuming={resumeFromBacklogPending}
                     />
-                    {recoveryAction ? (
+                    {recoveryAction && !workspaceRetry ? (
                       <IssueRecoveryActionCard
                         action={recoveryAction}
                         agentMap={agentMap}
