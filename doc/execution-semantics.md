@@ -1536,13 +1536,14 @@ messages pass normal admission independently of automatic recovery exhaustion.
 
 When preparation fails because a shared repository retains an unreadable task
 workspace, the task offers Retry. Resolving that recovery schedules an isolated
-repository selection only when the latest failed run records bootstrap failure
+repository selection with a fresh task-owned branch only when the latest failed run records bootstrap failure
 with no provider work. Normal admission applies the selection, resets the old
 session, and checks the configured remote with the current Git identity. It
 preserves the task's agent, model, environment, and execution gates. The previous
 workspace remains retained; its local files and Git objects are neither copied
-nor deleted. The user does not need to select a workspace or grant access to the
-other task. An explicit pending workspace choice takes precedence over recovery.
+nor deleted. The Retry control stays above the composer even when the original notice is
+outside the loaded conversation. The user does not need to select a workspace
+or grant access to the other task. An explicit pending workspace choice takes precedence over recovery.
 
 ### Operator identity and permission for manual dispatch
 

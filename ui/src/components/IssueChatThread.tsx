@@ -1,6 +1,5 @@
 import { resolveIssueChatHumanAuthor } from "@/lib/issue-chat-human-author";
 import { useCurrentWorkspaceRetry, useWorkspaceBaseRefRecovery, useWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
-import { WorkspaceRetryButton } from "./WorkspaceRetryButton";
 import { WorkspaceBaseRefRecoveryNotice } from "./WorkspaceBaseRefRecoveryNotice";
 import { DispositionRecoveryNotice, useDispositionRecoverySnapshot } from "./DispositionRecoveryNotice";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -3598,7 +3597,7 @@ function SystemNoticeCommentContent({
       });
   };
 
-  if (authorType === "system" && workspaceRetry) return <div id={anchorId}><WorkspaceRetryButton key={`${workspaceRetry.actionId}:${workspaceRetry.runId}`} {...workspaceRetry} /></div>;
+  if (authorType === "system" && workspaceRetry) return null;
   if (authorType === "system" && branchRecovery) return <div id={anchorId}><WorkspaceBaseRefRecoveryNotice key={`${branchRecovery.actionId}:${branchRecovery.runId}`} {...branchRecovery.props} /></div>;
 
   if (authorType === "system" && recoverySnapshot) {

@@ -1,5 +1,4 @@
 import { useWorkspaceBaseRefRecovery, useWorkspaceRetry } from "@/components/WorkspaceBaseRefRecovery";
-import { WorkspaceRetryButton } from "@/components/WorkspaceRetryButton";
 import { WorkspaceBaseRefRecoveryNotice } from "@/components/WorkspaceBaseRefRecoveryNotice";
 import { DispositionRecoveryNotice, useDispositionRecoverySnapshot } from "@/components/DispositionRecoveryNotice";
 import { useId, useState } from "react";
@@ -89,7 +88,7 @@ export function TaskChatSystemNotice({
       .catch(() => undefined);
   };
 
-  if (item.author === "system" && workspaceRetry) return <WorkspaceRetryButton key={`${workspaceRetry.actionId}:${workspaceRetry.runId}`} {...workspaceRetry} />;
+  if (item.author === "system" && workspaceRetry) return null;
   if (item.author === "system" && branchRecovery) return <WorkspaceBaseRefRecoveryNotice key={`${branchRecovery.actionId}:${branchRecovery.runId}`} {...branchRecovery.props} />;
 
   if (item.author === "system" && recoverySnapshot) {

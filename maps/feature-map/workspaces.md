@@ -82,7 +82,10 @@ that normal admission selects an isolated checkout from the configured remote,
 preserves the agent and environment, and leaves both tasks' old files intact.
 Private local branches and commits must not enter the new checkout. Repeated
 clicks request one retry; a paused project or pending approval must still block it.
-Repeat with a reused Git worktree to check the same blocker. This control does
+Repeat with fixed project branches, an existing task branch, and adapter branch
+overrides; Retry must choose a fresh branch while preserving setup and model settings.
+Add enough later comments to page the original notice out of view, reload, and
+verify Retry remains above the composer. This control does
 not depend on the workspace picker's visibility setting.
 
 For reconstructable Git expiration, finish a disposable task tree, run the

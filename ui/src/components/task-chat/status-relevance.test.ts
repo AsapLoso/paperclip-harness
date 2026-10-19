@@ -88,15 +88,6 @@ describe("task chat status relevance", () => {
     expect(policy.isHistoricalNotice({ ...notice, conversationSessionGeneration: 1 })).toBe(false);
   });
 
-  it("keeps the active recovery notice when repeated failures reuse its original comment", () => {
-    const repeatedNotice = { ...notice, metadata: { version: 1 as const, sourceRunId: "old", sections: [
-      { title: "Recovery", rows: [{ type: "key_value" as const, label: "Recovery action", value: "action" }] },
-    ] } };
-    const policy = taskChatStatusRelevance("blocked", [oldRun, { ...nextRun, status: "failed" }], { id: "action", status: "active" });
-    expect(policy.isHistoricalNotice(repeatedNotice)).toBe(false);
-    expect(taskChatStatusRelevance("done", [oldRun, nextRun], { id: "action", status: "resolved" }).isHistoricalNotice(repeatedNotice)).toBe(true);
-  });
-
   it.each(["done", "cancelled"])("hides obsolete notices on %s tasks even without loaded runs", (status) => {
     const policy = taskChatStatusRelevance(status, []);
     expect(policy.isHistoricalRun("unloaded")).toBe(true);

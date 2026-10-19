@@ -1,6 +1,12 @@
 import { useRef, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCurrentWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
+
+export function WorkspaceRetryControl() {
+  const retry = useCurrentWorkspaceRetry();
+  return retry ? <WorkspaceRetryButton key={`${retry.actionId}:${retry.runId}`} {...retry} /> : null;
+}
 
 export function WorkspaceRetryButton({ onRetry, unavailableReason }: {
   onRetry: () => Promise<void>;

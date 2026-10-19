@@ -4,8 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Issue, IssueCommentMetadata } from "@paperclipai/shared";
-import { WorkspaceBaseRefRecoveryProvider, useWorkspaceBaseRefRecovery, useWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
-import { WorkspaceRetryButton } from "./WorkspaceRetryButton";
+import { WorkspaceBaseRefRecoveryProvider, useWorkspaceBaseRefRecovery, useCurrentWorkspaceRetry } from "./WorkspaceBaseRefRecovery";
+import { WorkspaceRetryControl } from "./WorkspaceRetryButton";
 import { WorkspaceBaseRefRecoveryNotice } from "./WorkspaceBaseRefRecoveryNotice";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), resolve: vi.fn() }));
@@ -18,8 +18,8 @@ const issue = { id: "issue", companyId: "company", status: "blocked", assigneeAg
 const metadata: IssueCommentMetadata = { version: 1, sourceRunId: "run", sections: [{ rows: [{ type: "key_value", label: "Recovery action", value: "action" }] }] };
 function Consumer({ data = metadata }: { data?: IssueCommentMetadata }) {
   const value = useWorkspaceBaseRefRecovery(data);
-  const retry = useWorkspaceRetry(data);
-  if (retry) return <WorkspaceRetryButton {...retry} />;
+  const retry = useCurrentWorkspaceRetry();
+  if (retry) return <WorkspaceRetryControl />;
   return value ? <WorkspaceBaseRefRecoveryNotice {...value.props} /> : <p>No repair</p>;
 }
 let container: HTMLDivElement, root: Root, client: QueryClient;
@@ -96,4 +96,12 @@ it("keeps retry errors actionable and allows another click", async () => {
   await act(async () => container.querySelector("button")!.click());
   expect(container.querySelector('[role="alert"]')?.textContent).toBe("The task is paused.");
   expect(container.querySelector("button")!.disabled).toBe(false);
+});
+
+it("offers Retry even when its old notice is outside the loaded conversation", async () => {
+  mocks.get.mockResolvedValue({ companyId: "company", agentId: "agent", status: "failed", contextSnapshot: { issueId: "issue" },
+    resultJson: { configurationIncomplete: { reason: "workspace_source_restricted" }, executionRecovery: { kind: "bootstrap", providerWorkStarted: false } } });
+  issue.activeRecoveryAction!.ownerType = "board";
+  await render({ version: 1, sections: [] });
+  expect(container.textContent).toBe("Retry");
 });
