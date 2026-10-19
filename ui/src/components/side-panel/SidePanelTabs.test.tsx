@@ -145,7 +145,7 @@ describe("SidePanelTabs", () => {
     const planLabel = container.querySelector<HTMLElement>('[data-side-panel-tab-target="document:plan"] span');
     expect(planLabel?.className).toContain("text-left");
     expect(planLabel?.className).toContain("flex-auto");
-    expect(tabs[0]?.className).toContain("pl-1.5");
+    expect(tabs[0]?.className).toContain("pl-(--side-panel-streamlined-tab-padding-left)");
     expect(tabs[0]?.className).toContain("pr-6");
     const tabList = container.querySelector<HTMLElement>('[role="tablist"]');
     expect(tabList?.className).toContain("overflow-x-auto");

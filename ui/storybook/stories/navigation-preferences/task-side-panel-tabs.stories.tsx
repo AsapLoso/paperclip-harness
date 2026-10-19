@@ -4,7 +4,7 @@ import { SidePanelTabs, type SidePanelTabItem } from "@/components/side-panel";
 
 const initialTabs: SidePanelTabItem[] = [
   { id: "properties", type: "properties", label: "Properties", closable: true },
-  { id: "tasks", type: "subtasks", label: "Tasks", closable: true },
+  { id: "subtasks", type: "subtasks", label: "Subtasks", closable: true },
   { id: "notes", type: "issue-document", label: "ClipLab — Chat research notes", closable: true },
   { id: "plan", type: "issue-document", label: "Plan", closable: true },
   { id: "artifacts", type: "view", label: "Artifacts", closable: true },
@@ -70,5 +70,5 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const ShortTabActive: Story = { args: { initialActive: "tasks" } };
+export const ShortTabActive: Story = { args: { initialActive: "subtasks" } };
 export const LongTabActive: Story = { args: { initialActive: "notes" } };

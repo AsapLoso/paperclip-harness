@@ -127,7 +127,7 @@ function StreamlinedTabDragPreview({
       )}
     >
       <span className={cn(
-        "min-w-0 flex-auto overflow-hidden whitespace-nowrap pl-1.5",
+        "min-w-0 flex-auto overflow-hidden whitespace-nowrap pl-(--side-panel-streamlined-tab-padding-left)",
         tab.closable === false ? "pr-1.5" : "pr-6",
         labelIsTruncated && "side-panel-tab-label-fade",
       )}>

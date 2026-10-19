@@ -334,6 +334,7 @@
   --side-panel-streamlined-tab-max-width: var(--sz-160px);
   --side-panel-streamlined-tab-collapse-floor: var(--sz-48px);
   --side-panel-streamlined-tab-inline-space: calc(var(--spacing) * 1.5);
+  --side-panel-streamlined-tab-padding-left: calc(var(--spacing) * 1.5 + var(--sz-4px));
   --side-panel-tab-edge-fade-width: var(--sz-32px);
   --side-panel-tab-label-max-width: var(--sz-100px);
   --side-panel-tab-label-expanded-max-width: calc(var(--side-panel-tab-label-max-width) + var(--sz-18px));

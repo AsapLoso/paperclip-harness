@@ -123,7 +123,7 @@ export function SidePanelTab({
             className={cn(
               appearance === "streamlined-task"
                 ? cn(
-                    "flex h-full w-full min-w-0 items-center rounded-md pl-1.5 text-sm font-medium outline-none",
+                    "flex h-full w-full min-w-0 items-center rounded-md pl-(--side-panel-streamlined-tab-padding-left) text-sm font-medium outline-none",
                     closable ? "pr-6" : "pr-1.5",
                   )
                 : "flex h-full w-full min-w-0 items-center gap-1.5 rounded-(--side-panel-tab-radius) py-1.5 pl-2 text-xs font-medium outline-none",
