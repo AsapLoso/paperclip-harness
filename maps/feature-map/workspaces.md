@@ -76,9 +76,14 @@ remote credentials or a provider deployment.
 
 For a task reusing the shared project checkout, add a private task worktree that
 the assigned agent cannot read. Continue the shared task and verify the
-**Workspace source restricted** notice names a workspace repair action. No agent
-turn or automatic failure retry may start. Preserve the task binding and both
-tasks' files. Repeat with a reused Git worktree to check the same blocker.
+task offers **Retry**, without a workspace picker or repair checklist. Before the
+click, no agent turn or automatic failure retry may start. Click Retry and verify
+that normal admission selects an isolated checkout from the configured remote,
+preserves the agent and environment, and leaves both tasks' old files intact.
+Private local branches and commits must not enter the new checkout. Repeated
+clicks request one retry; a paused project or pending approval must still block it.
+Repeat with a reused Git worktree to check the same blocker. This control does
+not depend on the workspace picker's visibility setting.
 
 For reconstructable Git expiration, finish a disposable task tree, run the
 internal lifecycle sweep after its 24-hour grace, and inspect candidate/reclaimed

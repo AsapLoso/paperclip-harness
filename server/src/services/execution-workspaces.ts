@@ -1480,7 +1480,8 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
   }
 
   async function selectTaskWorkspace(input: { companyId: string; issueId: string; actor: AuthorizationActor;
-    selection: TaskWorkspaceSelection; expectedBindingRevision: number; requestKey: string }) {
+    selection: TaskWorkspaceSelection; expectedBindingRevision: number; requestKey: string; source?: "recovery" }) {
+    if (input.source === "recovery" && input.actor.type !== "board") throw forbidden("Workspace recovery requires a board actor");
     return db.transaction(async tx => {
       const [task] = await tx.select().from(issues).where(and(eq(issues.id, input.issueId), eq(issues.companyId, input.companyId),
         await issueReadSqlCondition(tx, input.actor))).for("update");
@@ -1506,7 +1507,7 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
       }
       if (task.workspaceBindingRevision !== input.expectedBindingRevision) throw conflict("Task workspace binding changed; inspect it before selecting again");
       await validateSelection(input, tx);
-      const intent: TaskWorkspaceIntent = { version: 1, request: { key: input.requestKey, expectedBindingRevision: input.expectedBindingRevision }, selection: input.selection, source: "explicit" };
+      const intent: TaskWorkspaceIntent = { version: 1, request: { key: input.requestKey, expectedBindingRevision: input.expectedBindingRevision }, selection: input.selection, source: input.source ?? "explicit" };
       const nextRevision = task.workspaceBindingRevision + 1;
       await tx.update(issues).set({ workspaceBindingRevision: nextRevision,
         workspacePendingSelection: { version: 1, requestKey: input.requestKey,
@@ -1531,6 +1532,9 @@ export function executionWorkspaceService(db: Db, opts: ExecutionWorkspaceServic
       const unsettled = await hasPendingTaskWorkspaceRecovery(tx, { ...input, excludeRunId: input.runId });
       if (unsettled) throw conflict("Previous task run still owns workspace recovery; finish recovery before changing its workspace");
       const patch = await validateSelection({ ...input, selection: pending.intent.selection }, tx);
+      if (pending.intent.source === "recovery") {
+        patch.executionWorkspaceSettings = { ...parseObject(task.executionWorkspaceSettings), ...patch.executionWorkspaceSettings };
+      }
       await tx.update(issues).set({ ...patch, workspaceSelection: pending.intent, workspacePendingSelection: null,
         workspaceBindingRevision: task.workspaceBindingRevision + 1, updatedAt: new Date() }).where(eq(issues.id, task.id));
       return true;

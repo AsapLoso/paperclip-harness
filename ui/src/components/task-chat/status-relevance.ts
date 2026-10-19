@@ -73,7 +73,10 @@ export function taskChatStatusRelevance(
     if (comment.authorType !== "system" && comment.presentation?.kind !== "system_notice") return false;
     const sourceRunId = comment.metadata?.sourceRunId ?? comment.createdByRunId
       ?? comment.runId ?? comment.derivedCreatedByRunId;
-    const recoveryActionId = comment.metadata?.recovery?.actionId;
+    const recoveryRow = comment.metadata?.sections.flatMap(section => section.rows)
+      .find(row => row.type === "key_value" && row.label === "Recovery action");
+    const recoveryActionId = comment.metadata?.recovery?.actionId
+      ?? (recoveryRow?.type === "key_value" ? recoveryRow.value : undefined);
     // System authorship alone does not make a comment execution status. Child
     // task relays and other unrelated updates have their own unresolved state.
     // Without run/recovery provenance, a later run cannot prove them obsolete.
