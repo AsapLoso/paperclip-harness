@@ -482,7 +482,7 @@ describe("TaskSidePanel", () => {
     }));
     expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain("Plan");
     const tasks = container.querySelector<HTMLButtonElement>('[data-side-panel-tab-target="subtasks"]');
-    expect(tasks?.textContent?.trim()).toBe("Subtasks");
+    expect(tasks?.textContent?.trim()).toBe("Tasks");
     await act(async () => tasks?.click());
     expect(container.textContent).toContain("Cross-project follow-up");
     expect(container.textContent).not.toContain("Subtasks content");
@@ -491,7 +491,7 @@ describe("TaskSidePanel", () => {
   it("exposes failed task loading even when no task count is available", async () => {
     await render(panel({ showSubtasksTab: true, tasksTab: { count: 0, hasError: true, content: <div role="alert">Could not load all tasks.</div> } }));
     const tasks = container.querySelector<HTMLButtonElement>('[data-side-panel-tab-target="subtasks"]');
-    expect(tasks?.textContent?.trim()).toBe("Subtasks");
+    expect(tasks?.textContent?.trim()).toBe("Tasks");
     await act(async () => tasks?.click());
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not load all tasks");
   });
