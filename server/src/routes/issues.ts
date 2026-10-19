@@ -97,6 +97,7 @@ import {
   resolveCreateIssueStatusDefault,
   resolveIssueRecoveryActionSchema,
   retryWorkspaceExportSchema,
+  recoverWorkspaceSchema,
   resumeWorkspaceFinalizationSchema,
   runnerGoalActionRequestSchema,
   feedbackTargetTypeSchema,
@@ -9494,6 +9495,18 @@ export function issueRoutes(
     });
   });
 
+  router.post("/issues/:id/recovery-actions/recover-workspace", validate(recoverWorkspaceSchema), async (req, res) => {
+    assertBoard(req);
+    const issue = await getAccessibleResource(req, res, svc.getById(req.params.id as string), "Issue not found");
+    if (!issue || !(await assertIssueReadAllowed(req, res, issue))) return;
+    const decision = await decideIssueAccess(req, issue, "issue:mutate");
+    if (!decision.allowed) throw forbidden(decision.explanation, authorizationDeniedDetails(decision));
+    const { requestWorkspaceRecovery } = await import("../services/workspace-recovery.js");
+    const receipt = await requestWorkspaceRecovery({ db, companyId: issue.companyId, issueId: issue.id,
+      ...req.body, actorId: getActorInfo(req).actorId });
+    res.status(202).json(receipt);
+  });
+
   router.post("/issues/:id/recovery-actions/resume-workspace-finalization", validate(resumeWorkspaceFinalizationSchema), async (req, res) => {
     assertBoard(req);
     const issue = await getAccessibleResource(req, res, svc.getById(req.params.id as string), "Issue not found");
@@ -13854,6 +13867,7 @@ export function issueRoutes(
         });
       const effectiveMoveToTodoRequested =
         !assigneeSelfCommentOnTerminal &&
+        !(isBlocked && !!commentBody && (await getExecutionBlocker(db, existing.companyId, existing.id))?.workspaceRepairRequired) &&
         (explicitMoveToTodoRequested ||
           (!!commentBody &&
             shouldImplicitlyMoveCommentedIssueToTodo({
@@ -18337,6 +18351,7 @@ export function issueRoutes(
         });
       const effectiveMoveToTodoRequested =
         !assigneeSelfCommentOnTerminal &&
+        !(isBlocked && (await getExecutionBlocker(db, issue.companyId, issue.id))?.workspaceRepairRequired) &&
         (explicitMoveToTodoRequested ||
           shouldImplicitlyMoveCommentedIssueToTodo({
             issueStatus: issue.status,

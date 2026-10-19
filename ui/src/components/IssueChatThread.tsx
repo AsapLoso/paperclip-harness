@@ -541,6 +541,7 @@ interface IssueChatComposerProps {
 }
 
 interface IssueChatThreadProps {
+  executionBlocked?: boolean;
   /** Browser sessions are placed chronologically by the default task thread. */
   browsers?: import("@paperclipai/shared").TaskBrowser[];
   onOpenBrowser?: (browserId: string) => void;

@@ -1,4 +1,5 @@
 import { hasRequiredWorkspaceRecovery } from "./workspace-restore-recovery-state.js";
+import { hasVerifiedWorkspaceRepair } from "./workspace-recovery-receipt.js";
 import { createHash } from "node:crypto";
 import { appendHeartbeatRunEvent } from "./heartbeat-run-events.js";
 import { canContinueCancelledRun } from "./run-cancellation.js";
@@ -178,7 +179,8 @@ export async function admitExplicitNativeContinuation(input: {
       !run.processPid && !run.processGroupId && !run.nativeSessionId;
     const legacyUserTurn = run.runtimeMode === "legacy" &&
       action.cause === "legacy_execution_requires_reconciliation" &&
-      isConversationAdapter(agent.adapterType);
+      (isConversationAdapter(agent.adapterType) ||
+        (agent.adapterType === "paperclip_runner" && await hasVerifiedWorkspaceRepair(db, run)));
     // Saved input is a request for a new turn, never permission to undo an
     // operator Stop or redeliver a message already consumed by this run.
     if (queuedRequest && !queuedInterrupt && (run.contextSnapshot?.wakeCommentId === commentId ||
@@ -188,6 +190,7 @@ export async function admitExplicitNativeContinuation(input: {
       // A settings change never converts a known process/webhook execution into
       // a conversation. Those adapters retain their reconciliation contract.
       if (historicalAdapter && !isConversationAdapter(historicalAdapter)) return null;
+      if (!historicalAdapter && agent.adapterType === "paperclip_runner") return null;
     }
     // For pre-upgrade rows without adapter evidence, only a new explicit user
     // turn is allowed, after the termination proofs below. This does not infer
@@ -203,8 +206,9 @@ export async function admitExplicitNativeContinuation(input: {
     if (!lockedRun || lockedRun.status !== run.status || lockedRun.agentId !== run.agentId ||
         lockedRun.finishedAt?.getTime() !== run.finishedAt.getTime()) return null;
     run = lockedRun;
-    if (run.resultJson?.workspaceRestoreFailure === "restore_unsafe_archive" || hasRequiredWorkspaceRecovery(run.resultJson)) {
-      return blocked("workspace_repair_required", "Verify safe workspace staging or repair before continuing. Your message is saved.");
+    if ((run.resultJson?.workspaceRestoreFailure === "restore_unsafe_archive" || hasRequiredWorkspaceRecovery(run.resultJson))
+      && !await hasVerifiedWorkspaceRepair(db, run)) {
+      return blocked("workspace_repair_required", "Paperclip is recovering saved work before continuing. Your message is saved.");
     }
     const cancelledStartup = await isCancelledNativeStartup(db, run, coordinator);
     if (partiallyDeliveredQueue && run.runtimeMode !== "native" && !unusedAdmission && !cancelledStartup) return null;
