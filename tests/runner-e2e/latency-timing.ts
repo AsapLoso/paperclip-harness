@@ -12,6 +12,8 @@ export interface LatencyEvidence {
   resolutionMs: number | null;
   invalid?: boolean;
   observationFailures?: number;
+  /** Reads abandoned when the browser observer's shutdown deadline expires. */
+  observationTimeouts?: number;
   /** Provider wall-clock metadata is retained separately and never measures visibility. */
   messageTimestamps?: { createdAt?: string; editedAt?: string };
 }

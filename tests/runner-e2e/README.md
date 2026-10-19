@@ -5,7 +5,11 @@
 The explicit `codie-latency-diagnostic` arms its observation recorder before
 dispatching task creation and measures elapsed time with `performance.now()`.
 The first browser read starts before dispatch; subsequent reads run every 100 ms
-without overlapping. The observer stops and drains before fixture teardown.
+without overlapping. The observer stops and drains before fixture teardown,
+with one one-second deadline for its pending and final reads. On expiry, it
+records `observationTimeouts` and a failed observation for each waiting probe,
+starts no more reads, and ignores late completions. Fixture cleanup owns the
+browser operation that can still be running after that deadline.
 It retains `latencyProbes` in the existing result JSON and dashboard, separately
 for the first visible substantive response and final task/run settlement, with
 an inclusive 30-second target. Platform-generated receipts do not count as the

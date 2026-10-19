@@ -11,7 +11,14 @@ export function armResponseTiming(input: { now?: () => number; page?: Page; ackn
   // Daytona response diagnostic does not enable receipts or measure Slack.
   const acknowledgement = input.acknowledgementTarget
     ? armLatencyProbe({ ...common, event: "acknowledgement", target: input.acknowledgementTarget }) : undefined;
+  const shutdown = new AbortController();
+  const timeouts = new Map<ReturnType<typeof armLatencyProbe>, number>();
+  let stopped = false;
   const observeResponse = async (page: Page) => {
+    if (stopped || shutdown.signal.aborted) return;
+    const observing = [response, ...(acknowledgement ? [acknowledgement] : [])]
+      .filter(probe => probe.result().firstPresentMs === null);
+    if (!observing.length) return;
     const read = () => page.getByTestId("task-chat-thread")
       .getByTestId("task-chat-agent-bubble").evaluateAll(elements => {
         const visible = { response: false, acknowledgement: false };
@@ -38,11 +45,24 @@ export function armResponseTiming(input: { now?: () => number; page?: Page; ackn
       response.sample(async () => ({ present: (await snapshot).response })),
       acknowledgement?.sample(async () => ({ present: (await snapshot).acknowledgement })),
     ]);
-    read().then(resolve, reject);
-    await samples;
+    const abandon = () => {
+      for (const probe of observing) timeouts.set(probe, (timeouts.get(probe) ?? 0) + 1);
+      // Reject the shared snapshot so a late browser completion cannot alter
+      // evidence after cleanup resumes. The browser operation itself may still
+      // be running; do not start another read after this deadline.
+      reject(new Error("Latency observer shutdown deadline exceeded"));
+    };
+    shutdown.signal.addEventListener("abort", abandon, { once: true });
+    try {
+      try { read().then(resolve, reject); } catch (error) { reject(error); }
+      await samples;
+    } finally {
+      shutdown.signal.removeEventListener("abort", abandon);
+    }
   };
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let stopping: Promise<void> | undefined;
   if (input.page) {
     const page = input.page;
     const tick = () => {
@@ -60,11 +80,23 @@ export function armResponseTiming(input: { now?: () => number; page?: Page; ackn
   return {
     beginSettlement: () => settlement.beginObservation(),
     observeResponse,
-    async stop() {
-      clearInterval(timer);
-      await pending;
-      if (input.page) await observeResponse(input.page).catch(() => {});
+    stop() {
+      return stopping ??= (async () => {
+        clearInterval(timer);
+        // One deadline covers both draining and the final observation. Abort
+        // only our snapshot wait, leaving page teardown to the fixture owner.
+        const deadline = setTimeout(() => shutdown.abort(), 1_000);
+        try {
+          await pending;
+          if (input.page) await observeResponse(input.page).catch(() => {});
+        } finally {
+          stopped = true;
+          clearTimeout(deadline);
+        }
+      })();
     },
-    results: () => [response.result(), settlement.result(), ...(acknowledgement ? [acknowledgement.result()] : [])],
+    results: () => [response, settlement, ...(acknowledgement ? [acknowledgement] : [])].map(probe => ({
+      ...probe.result(), ...(timeouts.has(probe) ? { observationTimeouts: timeouts.get(probe)! } : {}),
+    })),
   };
 }

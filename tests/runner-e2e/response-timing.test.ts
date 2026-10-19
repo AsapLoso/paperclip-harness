@@ -17,7 +17,7 @@ it("starts observation before dispatch and drains without overlapping reads on t
   expect(read).toHaveBeenCalledTimes(1);
   let stopped = false;
   const stopping = timing.stop().then(() => { stopped = true; });
-  await vi.advanceTimersByTimeAsync(1_000);
+  await vi.advanceTimersByTimeAsync(500);
   expect(stopped).toBe(false);
   expect(read).toHaveBeenCalledTimes(1);
   complete(absent);
@@ -27,6 +27,33 @@ it("starts observation before dispatch and drains without overlapping reads on t
   expect(read).toHaveBeenCalledTimes(2);
   await vi.advanceTimersByTimeAsync(1_000);
   expect(read).toHaveBeenCalledTimes(2);
+});
+
+it.each(["pending", "final"])("bounds shutdown when the %s read never returns and ignores late completions", async phase => {
+  vi.useFakeTimers();
+  const absent = { response: false, acknowledgement: false };
+  let complete!: (value: typeof absent) => void;
+  const stuck = () => new Promise<typeof absent>(resolve => { complete = resolve; });
+  const read = phase === "pending" ? vi.fn(stuck) : vi.fn().mockResolvedValueOnce(absent).mockImplementation(stuck);
+  const locator = { getByTestId: () => locator, evaluateAll: read };
+  const timing = armResponseTiming({ page: locator as unknown as Page, acknowledgementTarget: { operator: "<=", ms: 2_000 } });
+  await vi.advanceTimersByTimeAsync(0);
+  const stopping = timing.stop();
+  await vi.advanceTimersByTimeAsync(1_000);
+  await stopping;
+  const evidence = timing.results();
+  for (const probe of evidence.filter(probe => probe.event !== "final_settlement")) {
+    expect(probe).toMatchObject({ verdict: "inconclusive", firstPresentMs: null, observationFailures: 1, observationTimeouts: 1 });
+    expect(probe.lastAbsentMs).toBe(phase === "pending" ? null : 0);
+  }
+  expect(read).toHaveBeenCalledTimes(phase === "pending" ? 1 : 2);
+  complete({ response: true, acknowledgement: true });
+  await vi.advanceTimersByTimeAsync(1_000);
+  await timing.stop();
+  await timing.observeResponse(locator as unknown as Page);
+  expect(timing.results()).toEqual(evidence);
+  expect(read).toHaveBeenCalledTimes(phase === "pending" ? 1 : 2);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 it("observes edited visible text separately from a platform acknowledgement and final settlement", async () => {

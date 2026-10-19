@@ -32,7 +32,7 @@ describe("runner E2E report aggregation", () => {
       profileId: "runner-codex", environmentId: "local", caseId: "message-marker", provider: "codex", model: "fixture-model", runtimeMode: "native",
       startedAt: "2026-10-18T00:00:00Z", finishedAt: "2026-10-18T00:01:00Z", durationMs: 60_000, cleanup: "passed",
       // An old report called the crossing interval a failure (or a pass).
-      latencyProbes: [{ ...acknowledgement, verdict: "fail", reason: "outside_target" }, { ...acknowledgement, verdict: "pass", reason: "within_target" }, response],
+      latencyProbes: [{ ...acknowledgement, verdict: "fail", reason: "outside_target", observationTimeouts: 1 }, { ...acknowledgement, verdict: "pass", reason: "within_target" }, response],
     };
     const raw = JSON.stringify(result);
     await writeFile(path.join(directory, "result.json"), raw);
@@ -44,7 +44,7 @@ describe("runner E2E report aggregation", () => {
     });
     const normalized = JSON.parse(await readFile(path.join(output, "normalized-results.json"), "utf8"));
     expect(normalized.results[0].latencyProbes).toEqual([
-      { ...acknowledgement, recordedVerdict: "fail" }, { ...acknowledgement, recordedVerdict: "pass" }, response,
+      { ...acknowledgement, recordedVerdict: "fail", observationTimeouts: 1 }, { ...acknowledgement, recordedVerdict: "pass" }, response,
     ]);
     expect(normalized.passed).toBe(1);
     expect(await readFile(path.join(directory, "result.json"), "utf8")).toBe(raw);

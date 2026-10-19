@@ -68,6 +68,7 @@ const latencyProbe: Rule = (value, at) => {
     lastAbsentMs: nullable(finite), firstPresentMs: nullable(finite), resolutionMs: nullable(finite),
     invalid: optional(boolean),
     observationFailures: optional(integer),
+    observationTimeouts: optional(integer),
     messageTimestamps: optional(shape({ createdAt: optional(string), editedAt: optional(string) })),
     target: shape({ operator: oneOf("<", "<="), ms: finite }),
     verdict: oneOf("pass", "fail", "inconclusive"),
