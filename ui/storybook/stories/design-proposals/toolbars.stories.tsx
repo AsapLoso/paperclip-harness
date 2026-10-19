@@ -6,7 +6,6 @@ const meta = {
   id: "design-toolbars",
   title: "Design proposals/Components/Toolbars",
   component: ToolbarsPreview,
-  globals: { theme: "dark" },
   args: { family: "all", width: "full" },
   argTypes: {
     family: { control: "select", options: ["all", "tasks", "decisions", "skills", "artifacts", "projects", "routines"] },
@@ -21,7 +20,7 @@ const meta = {
       home: "design-proposals", status: "proposed",
       exception: "Canonical toolbar families staged in Design Proposals for system reuse and styling before production adoption.",
       implementation: "mixed", boundary: "fixtures",
-      notes: "Mounts TaskListToolbar with useTaskListCollection and DecisionsToolbar directly. All use the proposal theme and refreshed flyouts. Search, task view/layout/expansion, filters, decision grouping/sorting update local state. Task view preference uses an isolated story storage key. Create callbacks only report intent. Existing page and button stories retain their IDs and reuse the same source components. SkillsToolbar and ArtifactsToolbar also render directly; their pages consume the same extracted presentation with existing controllers unchanged. Scan busy/completed state is manually simulated. Canonical controls share ToolbarSearch, 44px height, opaque border, radius, padding and gap under the proposal theme. Control rows begin with search and end with the primary action when present. Tasks retains its view/heading dropdown before search with the same four persisted choices. ProjectsToolbar shares search, existing sort fields/directions and the create callback with Projects. Decisions search uses the same client-side matching helper as the desk and queue pages, with synthetic decision data. Artifact type filters retain their existing tab semantics; geometry is normalized inside the toolbar. No backend changes.",
+      notes: "Mounts TaskListToolbar with useTaskListCollection and DecisionsToolbar directly. All use the proposal theme and refreshed flyouts. Search, task view/layout/expansion, filters, decision grouping/sorting update local state. Task view preference uses an isolated story storage key. Create callbacks only report intent. Existing page and button stories retain their IDs and reuse the same source components. SkillsToolbar and ArtifactsToolbar also render directly; their pages consume the same extracted presentation with existing controllers unchanged. Scan busy/completed state is manually simulated. Skills mounts the shared Installed/Discover/My Skills route links below its controls, with Installed active; Sources remains in New > Manage sources. Link destinations are fixtures, not page-navigation acceptance. Canonical controls share ToolbarSearch, 44px height, opaque border, radius, padding and gap under the proposal theme. Control rows begin with search and end with the primary action when present. Tasks retains its view/heading dropdown before search with the same four persisted choices. ProjectsToolbar shares search, existing sort fields/directions and the create callback with Projects. Decisions search uses the same client-side matching helper as the desk and queue pages, with synthetic decision data. Artifact type filters retain their existing tab semantics; geometry is normalized inside the toolbar. No backend changes.",
     },
   },
   render: function Render(args) {

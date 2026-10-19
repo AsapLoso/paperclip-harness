@@ -1,3 +1,4 @@
+import { SkillsNavigationTabs } from "@/components/skill-studio/SkillsNavigationTabs";
 import { RoutinesToolbar, type RoutineSortField, type RoutineSortDir, type RoutineGroupBy } from "@/components/RoutinesToolbar";
 import type { AttentionItem } from "@paperclipai/shared";
 import { useState, type ReactNode } from "react";
@@ -79,7 +80,7 @@ function SkillsToolbarSpecimen() {
   const [action, setAction] = useState("");
   const report = (label: string) => () => setAction(`${label} requested · local preview only`);
   return <Specimen title="Skills toolbar" source="SkillsToolbar · extracted from CompanySkills and reused by the sandbox. Original search, sort, source, scan and creation controls.">
-    <SkillsToolbar viewTitle="Installed skills" viewDescription="Skills available to this organization." searchLabel="Search installed skills"
+    <SkillsToolbar navigation={<SkillsNavigationTabs activeView="installed" />} viewTitle="Installed skills" viewDescription="Skills available to this organization." searchLabel="Search installed skills"
       search={search} onSearchChange={setSearch} sort={sort} onSortChange={setSort}
       availableSources={[{ value: "github", label: "GitHub" }, { value: "local", label: "Local" }]} sourceBadgeFilter={source} setSourceBadgeFilter={setSource}
       onScan={() => { setScanPending(true); setAction("Scanning project workspaces · local preview only"); }} scanPending={scanPending}

@@ -7,7 +7,6 @@ const meta = {
   id: "design-buttons",
   title: "Design proposals/Components/Buttons",
   component: ButtonsPlayground,
-  globals: { theme: "dark" },
   args: { ...defaultButtonSettings },
   argTypes: {
     label: { control: "text" },

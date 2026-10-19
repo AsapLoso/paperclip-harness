@@ -81,3 +81,27 @@ test("task hover and portaled menus share the palette; production stories restor
   await expect(page.locator(".design-proposal-theme")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--background").trim())).toBe("oklch(0.205 0 0)");
 });
+
+test("light proposals inherit the production palette, including portaled menus", async ({ page }) => {
+  const palette = () => page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return Object.fromEntries(["background", "foreground", "card", "card-foreground", "popover", "popover-foreground", "primary", "primary-foreground", "secondary", "muted", "muted-foreground", "accent", "border", "input", "ring", "sidebar"].map(name => [name, style.getPropertyValue(`--${name}`).trim()]));
+  });
+  await page.goto("/iframe.html?id=foundations-primitive-matrix--all-primitives&viewMode=story&globals=theme:light");
+  await expect(page.getByRole("heading", { name: "Primitives and interaction states", exact: true })).toBeVisible();
+  const production = await palette();
+  await page.goto("/iframe.html?id=design-foundations-colors--token-reference&viewMode=story&globals=theme:light");
+  await expect(page.getByTestId("color-foundations-preview")).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
+  expect(await palette()).toEqual(production);
+  await expect(page.locator('tr[data-token="background"] [data-token-value]')).toHaveText(production.background);
+  await page.goto("/iframe.html?id=design-foundations-colors--surfaces-and-elevation&viewMode=story&globals=theme:light");
+  await expect(page.getByLabel("Task name")).toBeVisible();
+  await expect(page.locator('[data-slot="card"][data-elevation="middle"]')).toHaveCSS("background-color", "oklch(0.97 0 0)");
+  await page.getByLabel("Task name").focus();
+  await expect(page.getByLabel("Task name")).toHaveCSS("outline-style", "solid");
+  await page.goto("/iframe.html?id=design-foundations-colors--text-and-interaction&viewMode=story&globals=theme:light");
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
+  await expect(page.getByRole("menu", { name: "Columns", exact: true })).toHaveCSS("background-color", "oklch(1 0 0)");
+  expect(await palette()).toEqual(production);
+});

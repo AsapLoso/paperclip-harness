@@ -5,7 +5,6 @@ const meta = {
   id: "design-app-shell",
   title: "Design proposals/Layouts/App shell",
   component: AppShellPreview,
-  globals: { theme: "dark" },
   args: { rightSidebar: false, overflowingContent: false },
   argTypes: {
     rightSidebar: { control: "boolean", description: "Include the optional right pane." },

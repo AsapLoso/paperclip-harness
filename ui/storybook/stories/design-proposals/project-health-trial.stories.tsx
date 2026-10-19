@@ -7,7 +7,6 @@ const meta = {
   id: "design-project-health-trial",
   title: "Design proposals/AI Generated Test Pages/Project health trial",
   component: ProjectHealthTrial,
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     initialEntries: ["/PAP/projects"],

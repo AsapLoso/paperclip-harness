@@ -5,7 +5,6 @@ const meta = {
   id: "design-agent-task-list-trial",
   title: "Design proposals/AI Generated Test Pages/Tasks reproduction test",
   component: TasksReproductionTrial,
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     initialEntries: ["/PAP/issues"],

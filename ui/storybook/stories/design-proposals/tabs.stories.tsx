@@ -6,7 +6,6 @@ const meta = {
   id: "design-tabs",
   title: "Design proposals/Components/Tabs",
   component: TabsPreview,
-  globals: { theme: "dark" },
   args: { pattern: "all", width: "full" },
   argTypes: {
     pattern: { control: "select", options: ["all", "standard", "compact"] },

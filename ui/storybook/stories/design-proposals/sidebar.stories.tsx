@@ -6,7 +6,6 @@ const meta = {
   id: "design-sidebar",
   title: "Design proposals/Components/Sidebar",
   component: SidebarPreview,
-  globals: { theme: "dark" },
   args: { scenario: "default" },
   argTypes: { scenario: { control: false } },
   parameters: {

@@ -1,3 +1,4 @@
+import { SkillsPageNavigation } from "@/components/skill-studio/SkillsNavigationTabs";
 import { ProjectSkillRepositoryRow } from "@/components/skill-studio/ProjectSkillRepositoryRow";
 import { SkillSourceConnectionRepair } from "@/components/skill-studio/SkillSourceConnectionRepair";
 import { SkillSourceBranchRepair } from "@/components/skill-studio/SkillSourceBranchRepair";
@@ -87,7 +88,7 @@ export function SkillSources() {
       <div><h1 className="text-xl font-semibold">Skill sources</h1><p className="mt-1 text-sm text-muted-foreground">Skills from your repositories stay up to date automatically.</p></div>
       <Button onClick={() => navigate('/skills/sources/new')}><Plus className="size-4" />Import from GitHub</Button>
     </header>
-    <Link to="/skills" className="text-sm text-muted-foreground hover:text-foreground">Installed skills</Link>
+    <SkillsPageNavigation activeView="sources" fallback={<Link to="/skills" className="text-sm text-muted-foreground hover:text-foreground">Installed skills</Link>} />
     {query.isPending && <p role="status" className="text-sm text-muted-foreground">Loading sources…</p>}
     {query.error && <p role="alert" className="text-sm text-destructive">{query.error.message} <Button variant="ghost" size="sm" onClick={() => void query.refetch()}>Try again</Button></p>}
     {query.data?.length === 0 && availableProjects.length === 0 && <div className="flex flex-col items-start gap-3 py-8"><p className="text-sm text-muted-foreground">No repositories added yet. Import your skills to make them available in {selectedCompany?.name ?? 'this company'}.</p><Button variant="outline" onClick={() => navigate('/skills/sources/new')}>Import from GitHub</Button></div>}

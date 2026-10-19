@@ -7,7 +7,6 @@ const meta = {
   id: "design-foundations-typography",
   title: "Design proposals/Foundations/Typography",
   component: TypographyPreview,
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     docs: { description: { component: "Proposed type ramp and source-derived typography roles for Design Proposals and the local design sandbox. Live measurements distinguish current CSS behavior from proposed guidance. Includes shared TaskList, MetricCard and MarkdownBody examples; the shared proposal typography also applies to the opt-in sandbox." } },

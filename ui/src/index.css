@@ -151,6 +151,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.985 0 0);
+  --primary-sidebar-background: color-mix(in srgb, var(--border) 50%, var(--background));
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -467,6 +468,7 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
+  --primary-sidebar-background: var(--muted);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
@@ -1155,11 +1157,8 @@ select:where(:not([multiple]):not(.appearance-none)):where(:not([size]), [size="
 /* Sidebar actions cover the trailing live label without moving row content,
    fading into the row surface like the task-detail tab close control. */
 .primary-sidebar-surface {
-  --sidebar-action-rest-surface: color-mix(in srgb, var(--border) 50%, var(--background));
+  --sidebar-action-rest-surface: var(--primary-sidebar-background);
   background-color: var(--sidebar-action-rest-surface);
-}
-.dark .primary-sidebar-surface {
-  --sidebar-action-rest-surface: var(--muted);
 }
 .sidebar-action-row {
   --sidebar-action-surface: var(--sidebar-action-rest-surface, var(--background));
@@ -3842,8 +3841,8 @@ html:has(.design-proposal-theme) [data-conversation-typography] .paperclip-markd
 }
 html:has(.design-proposal-theme) [data-conversation-typography] .paperclip-markdown :is(a, a:hover, a:focus-visible) { color: inherit; }
 html:has(.design-proposal-theme) [data-conversation-typography] .shimmer-text {
-  --shimmer-base: var(--conversation-human-foreground);
-  --shimmer-highlight: color-mix(in oklch, var(--conversation-human-foreground) 35%, transparent);
+  --shimmer-base: var(--foreground);
+  --shimmer-highlight: color-mix(in oklch, var(--foreground) 35%, transparent);
   /* Two identical waves make the endpoints coincide without a blank dwell. */
   background-image: linear-gradient(90deg, var(--shimmer-base) 0%, var(--shimmer-highlight) 25%, var(--shimmer-base) 50%, var(--shimmer-highlight) 75%, var(--shimmer-base) 100%);
   animation-duration: var(--motion-conversation-tool-shimmer);
@@ -3852,9 +3851,9 @@ html:has(.design-proposal-theme) [data-conversation-typography] .shimmer-text {
    inherit its text fill, rather than starting a separate sweep for each font.
    Removing the lifecycle hook restores ordinary muted metadata and hover. */
 html:has(.design-proposal-theme) [data-conversation-typography] [data-conversation-tool-running="true"] {
-  color: var(--conversation-human-foreground);
-  --shimmer-base: var(--conversation-human-foreground);
-  --shimmer-highlight: color-mix(in oklch, var(--conversation-human-foreground) 35%, transparent);
+  color: var(--foreground);
+  --shimmer-base: var(--foreground);
+  --shimmer-highlight: color-mix(in oklch, var(--foreground) 35%, transparent);
   background-image: linear-gradient(90deg, var(--shimmer-base) 0%, var(--shimmer-highlight) 25%, var(--shimmer-base) 50%, var(--shimmer-highlight) 75%, var(--shimmer-base) 100%);
   background-size: 200% 100%;
   background-clip: text;
@@ -3888,7 +3887,7 @@ html:has(.design-proposal-theme) [data-conversation-typography] :is(
   [data-testid="task-chat-system-notice"] button[aria-expanded],
   [data-testid="task-chat-collapsible-marker"] button[aria-expanded]
 ):is(:hover, :focus-visible):not(:disabled) {
-  color: var(--conversation-human-foreground);
+  color: var(--foreground);
   background-color: color-mix(in srgb, var(--muted) 40%, transparent);
   border-radius: var(--radius-sm);
 }
@@ -3947,30 +3946,43 @@ html.dark:has(.design-proposal-theme) {
   --task-row-surface-hover: var(--muted);
   background: var(--background);
 }
+/* Light proposals inherit production semantic colors. Proposal-only surface
+   names alias existing production tokens rather than introducing a palette. */
+html:not(.dark):has(.design-proposal-theme) {
+  --muted-alt: var(--secondary);
+  --design-sidebar-surface: var(--primary-sidebar-background);
+  --design-sidebar-item-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
+  --design-sidebar-item-highlight: var(--sidebar-accent);
+  --design-sidebar-item-active-foreground: var(--sidebar-accent-foreground);
+  --focus-ring-stroke-width: 1px;
+  --focus-ring-halo-width: 3px;
+  --focus-ring-halo: color-mix(in srgb, var(--ring) 20%, transparent);
+  --focus-ring-shadow: 0 0 0 var(--focus-ring-halo-width) var(--focus-ring-halo);
+}
 .design-proposal-theme { color: var(--muted-foreground); }
 html.dark:has(.design-proposal-theme) .pane-resize-handle { --ring: var(--pane-resize-highlight); }
-html.dark:has(.design-proposal-theme) :is(body, #storybook-root) { background: var(--background); }
-html.dark:has(.design-proposal-theme) [data-slot="input"] { background: var(--background-alt); border-color: var(--border); color: var(--muted-foreground); }
-html.dark:has(.design-proposal-theme) [data-slot="input"]:focus-visible { border-color: var(--ring); }
+html:has(.design-proposal-theme) :is(body, #storybook-root) { background: var(--background); }
+html:has(.design-proposal-theme) [data-slot="input"] { background: var(--background-alt); border-color: var(--border); color: var(--muted-foreground); }
+html:has(.design-proposal-theme) [data-slot="input"]:focus-visible { border-color: var(--ring); }
 /* Bright edge with a softer outer halo, matching the production focus treatment.
    Trigger wrappers replace Button's slot, so include those identities too.
    Resize controls keep their separate neutral interaction color. */
-html.dark:has(.design-proposal-theme) :where([data-slot="input"], [data-slot="textarea"], [data-slot="button"], [data-slot="tooltip-trigger"], [data-slot="dropdown-menu-trigger"], [data-slot="popover-trigger"], [data-slot="select-trigger"], [data-slot="checkbox"], [data-slot="tabs-trigger"], [role="tab"], select):focus-visible:where(:not([aria-invalid="true"], [data-variant="destructive"], .pane-resize-handle, .pane-resize-handle *, .design-task-search input)) {
+html:has(.design-proposal-theme) :where([data-slot="input"], [data-slot="textarea"], [data-slot="button"], [data-slot="tooltip-trigger"], [data-slot="dropdown-menu-trigger"], [data-slot="popover-trigger"], [data-slot="select-trigger"], [data-slot="checkbox"], [data-slot="tabs-trigger"], [role="tab"], select):focus-visible:where(:not([aria-invalid="true"], [data-variant="destructive"], .pane-resize-handle, .pane-resize-handle *, .design-task-search input)) {
   --tw-ring-color: var(--focus-ring-halo);
   --tw-ring-shadow: var(--focus-ring-shadow);
   outline: var(--focus-ring-stroke-width) solid var(--ring);
   outline-offset: calc(-1 * var(--focus-ring-stroke-width));
   box-shadow: var(--focus-ring-shadow);
 }
-html.dark:has(.design-proposal-theme) :where(.task-row-link, .task-row-status-link, .cell-marquee, .activity-row-refreshed, .task-list-sort-button, .design-page-content, .design-sidebar-recent-list, .design-sidebar a, .task-filter-search input):focus-visible {
+html:has(.design-proposal-theme) :where(.task-row-link, .task-row-status-link, .cell-marquee, .activity-row-refreshed, .task-list-sort-button, .design-page-content, .design-sidebar-recent-list, .design-sidebar a, .task-filter-search input):focus-visible {
   outline: var(--focus-ring-stroke-width) solid var(--ring);
   outline-offset: calc(-1 * var(--focus-ring-stroke-width));
   box-shadow: var(--focus-ring-shadow);
 }
-html.dark:has(.design-proposal-theme) [data-slot="card"] { border-color: var(--border); }
-html.dark:has(.design-proposal-theme) [data-slot="card"][data-elevation="middle"] { background: var(--muted-alt); }
-html.dark:has(.design-proposal-theme) [data-slot="card"][data-elevation="high"] { background: var(--muted); }
-html.dark:has(.design-proposal-theme) [data-slot="card-title"] { color: var(--foreground); }
+html:has(.design-proposal-theme) [data-slot="card"] { border-color: var(--border); }
+html:has(.design-proposal-theme) [data-slot="card"][data-elevation="middle"] { background: var(--muted-alt); }
+html:has(.design-proposal-theme) [data-slot="card"][data-elevation="high"] { background: var(--muted); }
+html:has(.design-proposal-theme) [data-slot="card-title"] { color: var(--foreground); }
 .task-list-columns-scroll { overflow-x: auto; isolation: isolate; }
 .task-list-viewport,
 .horizontal-scroll-viewport { position: relative; min-width: 0; background: var(--task-list-surface); }
@@ -4284,6 +4296,9 @@ html.dark:has(.design-proposal-theme) [data-slot="card-title"] { color: var(--fo
   --design-page-search-surface: var(--background-alt);
   --design-sidebar-surface: var(--muted); /* Paper: --dark-color-muted. */
   --design-sidebar-border: var(--border); /* Paper: --dark-color-border. */
+  --design-sidebar-item-foreground: var(--muted-foreground);
+  --design-sidebar-item-highlight: var(--muted-highlight);
+  --design-sidebar-item-active-foreground: var(--foreground);
   --design-page-control-surface: color-mix(in oklab, var(--foreground) 4%, var(--task-list-surface));
   /* Opaque so the search field's darker fill doesn't change the visible border. */
   --design-page-control-border: color-mix(in srgb, var(--foreground) 15%, var(--design-page-control-surface));
@@ -4341,11 +4356,11 @@ html:has(.design-proposal-theme) .design-navigation-group-label {
   text-transform: uppercase;
   color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
 }
-.design-sidebar .design-sidebar-item { min-height: var(--design-sidebar-item-height); margin-inline: var(--design-sidebar-item-inset); padding-inline: var(--design-sidebar-item-inset); color: var(--muted-foreground); font-size: var(--design-sidebar-label-size); line-height: var(--design-sidebar-label-leading); }
-.design-sidebar .design-sidebar-item:is(:hover, [aria-current="page"]) { background: var(--muted-highlight); color: var(--foreground); }
-.design-sidebar-new-task { display: flex; justify-content: flex-start; width: calc(100% - var(--design-sidebar-item-inset) * 2); height: var(--design-sidebar-item-height); margin-inline: var(--design-sidebar-item-inset); padding-inline: var(--design-sidebar-item-inset); gap: calc(var(--spacing) * 2.5); font-size: var(--design-sidebar-label-size); line-height: var(--design-sidebar-label-leading); font-weight: var(--font-weight-medium); color: var(--muted-foreground); }
+.design-sidebar .design-sidebar-item { min-height: var(--design-sidebar-item-height); margin-inline: var(--design-sidebar-item-inset); padding-inline: var(--design-sidebar-item-inset); color: var(--design-sidebar-item-foreground); font-size: var(--design-sidebar-label-size); line-height: var(--design-sidebar-label-leading); }
+.design-sidebar .design-sidebar-item:is(:hover, [aria-current="page"]) { background: var(--design-sidebar-item-highlight); color: var(--design-sidebar-item-active-foreground); }
+.design-sidebar-new-task { display: flex; justify-content: flex-start; width: calc(100% - var(--design-sidebar-item-inset) * 2); height: var(--design-sidebar-item-height); margin-inline: var(--design-sidebar-item-inset); padding-inline: var(--design-sidebar-item-inset); gap: calc(var(--spacing) * 2.5); font-size: var(--design-sidebar-label-size); line-height: var(--design-sidebar-label-leading); font-weight: var(--font-weight-medium); color: var(--design-sidebar-item-foreground); }
 .design-sidebar-new-task svg { width: var(--design-page-icon-size); height: var(--design-page-icon-size); }
-.design-sidebar-new-task:hover { background: var(--muted-highlight); color: var(--foreground); }
+.design-sidebar-new-task:hover { background: var(--design-sidebar-item-highlight); color: var(--design-sidebar-item-active-foreground); }
 .design-sidebar-recents .design-sidebar-item { font-weight: var(--font-weight-normal); }
 .design-sidebar-navigation > :not(.design-sidebar-recents) { flex-shrink: 0; }
 .design-sidebar-recents { display: flex; flex: 1; min-height: 0; }

@@ -104,3 +104,19 @@ test("organization title resets after menu dismissal outside its hit area", asyn
   await expect(trigger).toBeFocused();
   await expect(label).toHaveAttribute("data-revealing", "true");
 });
+
+test("light sidebar uses production surface, navigation contrast and selected colors", async ({ page }) => {
+  await page.goto('/iframe.html?id=design-sidebar--default&viewMode=story&globals=theme:light');
+  const sidebar = page.locator('.design-sidebar');
+  await expect(sidebar).toBeVisible();
+  // The production primary sidebar renders a border/background blend, not --sidebar.
+  await expect(sidebar).toHaveCSS('background-color', 'color(srgb 0.948957 0.949131 0.949147)');
+  const tasks = sidebar.getByRole('link', { name: 'Tasks', exact: true });
+  await expect(tasks).toHaveCSS('background-color', 'oklch(0.88 0 0)');
+  await expect(tasks).toHaveCSS('color', 'oklch(0.205 0 0)');
+  const projects = sidebar.getByRole('link', { name: 'Projects', exact: true });
+  await expect(projects).toHaveCSS('color', 'oklab(0.145 0 0 / 0.8)');
+  await projects.hover();
+  await expect(projects).toHaveCSS('background-color', 'oklch(0.88 0 0)');
+  await expect(projects).toHaveCSS('color', 'oklch(0.205 0 0)');
+});

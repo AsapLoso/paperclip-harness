@@ -117,13 +117,19 @@ reminder; dismissing one clears the composer and stays effective after reload fo
 that person and task. Other inputs keep a pending indicator that can reopen them;
 resolving or skipping the input removes that indicator.
 
-## Proposed dark-mode color foundation
+## Proposed color foundation
 
-Review **Design proposals → Foundations → Colors (dark mode)** in Storybook
+Review **Design proposals → Foundations → Colors** in Storybook
 (`design-foundations-colors`): Token reference, Surfaces & elevation, and
 Text & interaction. The palette comes from the [Paper Dark mode frame](https://app.paper.design/file/01KZ5QQTS4TG2VADP7ZVGJNQY4/p-L-0/3LXU-2)
-and the designer's usage rules. These color values and usage rules apply only
-to dark mode; this proposal does not define a light-mode palette. It remains
+and the designer's usage rules. Dark mode retains these proposed values. Light mode inherits the existing
+production semantic palette from `:root`, including foreground, background,
+border, input, accent, status and ring colors. Proposal-only `--muted-alt`
+aliases production `--secondary`; the proposed light sidebar uses `--primary-sidebar-background`, the same
+border/background blend rendered by the production primary sidebar. Light
+navigation uses production foreground at 80% opacity and sidebar-accent for
+selected/hovered items, rather than the dark proposal’s muted mapping.
+Storybook proposals follow the theme toolbar instead of locking dark mode. It remains
 proposed until visual approval.
 
 Paper's `dark-color-*` names map to theme-independent CSS tokens in
@@ -155,7 +161,7 @@ Keep that alpha value rather than replacing it with a different opaque gray for
 each background. Card surface levels share this border and do not automatically
 add shadows. Use the existing `Card` with `elevation="low"`, `"middle"`, or `"high"`;
 omitting elevation keeps its default surface. These new surface mappings apply
-only in the proposed dark theme.
+in both proposal themes, using their respective tokens.
 
 Most text is muted foreground. Foreground is an intentional exception for
 headings, header labels and emphasis. Task-title read/unread weight and hover
@@ -166,7 +172,8 @@ The Storybook proposal decorator adds `.design-proposal-theme`. Dark semantic
 overrides are scoped to its presence on the document so portaled menus inherit
 the same colors. Leaving a proposal removes that scope. Existing production
 stories and the app's default theme retain their existing appearance; the
-light palette has not been redesigned by this proposal. The sidebar, page shell,
+light palette is reused without redefining its production colors. Activity shimmer
+and interactive metadata emphasis follow `--foreground`; human bubble text stays white on blue. The sidebar, page shell,
 task list, shared inputs, card levels and refreshed flyouts consume these same
 semantic tokens.
 
@@ -921,3 +928,17 @@ created/target-date sort choices and direction toggling, and Add Project. Projec
 search matches all words across name and description before sorting and grouping.
 Connector source tabs sit on a second row below search. Tasks keeps its view
 dropdown before search; task view state and persistence are unchanged.
+
+In the streamlined Skills area, `SkillsNavigationTabs` replaces the contextual
+sidebar with Installed, Discover and My Skills links styled as canonical Standard
+tabs beneath the toolbar. Studio and Sources keep these links beneath their own
+header controls. Sources is a separate destination available through the Skills
+New menu's Manage sources action; it is not a tab. The main company navigation
+stays visible. Legacy Skills navigation retains its existing sidebar.
+
+The streamlined My Skills landing (`/skills/studio`) mounts the same CompanySkills
+collection, SkillsToolbar and DiscoveryGrid/SkillCard as Installed and Discover.
+It keeps the existing installed-skill collection, defaults to Recently updated,
+and opens cards directly in Studio. Search, source filtering, scanning, import,
+folder creation and skill creation use the existing collection controllers.
+Studio editor routes and the legacy recency landing keep their own layouts.

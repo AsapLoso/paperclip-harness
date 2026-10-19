@@ -129,6 +129,12 @@ test("canonical toolbars share control geometry and keep the requested keyboard 
     }
   }
   const skills = preview.getByRole("toolbar", { name: "Skills controls", exact: true });
+  const skillViews = skills.getByRole("navigation", { name: "Skills views" });
+  await expect(skillViews.getByRole("link")).toHaveText(["Installed", "Discover", "My Skills"]);
+  await expect(skillViews.getByRole("link", { name: "Installed", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(skillViews.getByRole("link", { name: "My Skills", exact: true })).toHaveAttribute("href", /\/skills\/studio$/);
+  await expect(skillViews.getByRole("link", { name: "Sources", exact: true })).toHaveCount(0);
+
   await expect(skills.getByRole("button").last()).toHaveAccessibleName("New");
   const decisions = preview.getByRole("region", { name: "Decisions toolbar", exact: true });
   await decisions.getByRole("textbox", { name: "Search decisions", exact: true }).fill("des-3");

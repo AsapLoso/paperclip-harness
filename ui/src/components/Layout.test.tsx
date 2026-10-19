@@ -947,7 +947,7 @@ describe("Layout", () => {
     });
   });
 
-  it("keeps global navigation beside Skills, Agent, and Routine details", async () => {
+  it("keeps global navigation beside Agent and Routine details", async () => {
     async function renderAt(pathname: string) {
       currentPathname = pathname;
       const root = createRoot(container);
@@ -968,7 +968,6 @@ describe("Layout", () => {
     }
 
     for (const [pathname, sidebarText] of [
-      ["/PAP/skills/studio", "Skills sidebar"],
       ["/PAP/agents/briefing-analyst/skills", "Agent sidebar briefing-analyst"],
       [
         "/PAP/agents/briefing-analyst/runs/run-1",
@@ -1033,6 +1032,21 @@ describe("Layout", () => {
       await act(async () => {
         root.unmount();
       });
+      container.innerHTML = "";
+    }
+  });
+
+  it("uses the global rail without secondary Skills navigation in the streamlined shell", async () => {
+    for (const path of ["/PAP/skills", "/PAP/skills?tab=discover", "/PAP/skills/studio", "/PAP/skills/sources"]) {
+      currentPathname = path;
+      const root = createRoot(container);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      await act(async () => { root.render(<QueryClientProvider client={queryClient}><Layout /></QueryClientProvider>); });
+      await flushReact();
+      await flushReact();
+      expect(container.textContent).toContain("Main company nav");
+      expect(container.textContent).not.toContain("Skills sidebar");
+      await act(async () => root.unmount());
       container.innerHTML = "";
     }
   });

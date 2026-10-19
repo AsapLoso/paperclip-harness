@@ -177,7 +177,7 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     [routeSidebarCompanyId, routeSidebarCompanyPrefix],
   );
   // Most contextual routes replace the global navigation inside the same
-  // sidebar shell. Skills, Apps, Agent details, and Routine details are the
+  // sidebar shell. Apps, Agent details, and Routine details are the
   // exceptions in Streamlined UI: their local navigation is a second rail
   // beside the persistent company nav.
   const sharedSecondarySidebar = isCompanySettingsRoute ? (
@@ -216,13 +216,10 @@ export function Layout({ sidebarSections }: { sidebarSections?: ReactNode }) {
     <AgentContextualSidebar agentRef={agentId} />
   ) : streamlinedUiEnabled && shellRoute.builtInContextualSurface === "routine" && routineId ? (
     <SetupWizardSidebarOutlet><RoutineContextualSidebar routineId={routineId} /></SetupWizardSidebarOutlet>
-  ) : streamlinedUiEnabled && shellRoute.builtInContextualSurface === "skills" ? (
-    <SkillsContextualSidebar />
   ) : sharedSecondarySidebar;
   const hasSecondarySidebar = secondarySidebar != null;
   const keepsPrimarySidebar = streamlinedUiEnabled && hasSecondarySidebar && (
     isAgentChatRoute
-    || shellRoute.builtInContextualSurface === "skills"
     || shellRoute.builtInContextualSurface === "agent"
     || shellRoute.builtInContextualSurface === "routine"
     || isAppsRoute

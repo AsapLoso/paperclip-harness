@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState } from "react";
+import { useTheme } from "@/context/ThemeContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TaskList } from "@/components/TaskList";
@@ -15,27 +16,28 @@ const colors = [
   { name: "muted-highlight", usage: "Hover backgrounds; existing selected and sorted states keep their documented behavior." },
   { name: "muted-alt", usage: "Middle card surface." },
   { name: "muted-foreground", usage: "Default text, secondary labels, metadata and read task titles." },
-  { name: "border", usage: "Shared pane dividers, field outlines and card borders. White at 10% opacity; its appearance depends on the surface beneath it." },
-  { name: "ring", usage: "Focus indicators use foreground; pane resize controls keep their neutral gray highlight." },
-  { name: "focus-ring-halo", usage: "Soft outer focus halo: foreground at 20% opacity, surrounding the bright edge." },
+  { name: "border", usage: "Shared pane dividers, field outlines and card borders. Uses the active production light border or the translucent Paper dark border." },
+  { name: "ring", usage: "Production ring in light mode; foreground in dark mode. Pane resize controls retain their own highlight." },
+  { name: "focus-ring-halo", usage: "Soft outer focus halo: active ring at 20% opacity, surrounding the focus edge." },
 ] as const;
 
 function TokenReference() {
+  const { theme } = useTheme();
   const [values, setValues] = useState<Record<string, string>>({});
   useLayoutEffect(() => {
     const styles = getComputedStyle(document.documentElement);
     setValues(Object.fromEntries(colors.map(({ name }) => [name, styles.getPropertyValue(`--${name}`).trim()])));
-  }, []);
+  }, [theme]);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-2xl text-left text-sm">
-        <caption className="pb-6 text-left text-muted-foreground">Dark-mode values come directly from the active CSS token layer. Swatches are shown over the dark background surface.</caption>
+        <caption className="pb-6 text-left text-muted-foreground">Values come directly from the active CSS token layer. Switch Light / Dark in the Storybook toolbar to compare.</caption>
         <thead className="border-b border-border text-foreground"><tr>
           {["Swatch", "Code token", "CSS value", "Use"].map(label => <th key={label} scope="col" className="px-3 py-3 font-semibold">{label}</th>)}
         </tr></thead>
         <tbody>{colors.map(({ name, usage }) => <tr key={name} data-token={name} className="border-b border-border align-top">
           <td className="px-3 py-4"><div aria-hidden className="h-12 w-16 overflow-hidden rounded-md border border-border bg-background"><div className="h-full w-full" style={{ backgroundColor: `var(--${name})` }} /></div></td>
-          <th scope="row" className="px-3 py-4 font-normal"><code className="block whitespace-nowrap text-foreground">--{name}</code><span className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{name === "ring" || name === "focus-ring-halo" ? "Derived from dark-color-foreground" : `Paper reference: dark-color-${name}`}</span></th>
+          <th scope="row" className="px-3 py-4 font-normal"><code className="block whitespace-nowrap text-foreground">--{name}</code><span className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{theme === "light" ? "Production light palette" : name === "ring" || name === "focus-ring-halo" ? "Derived from dark-color-foreground" : `Paper reference: dark-color-${name}`}</span></th>
           <td className="whitespace-nowrap px-3 py-4"><code data-token-value>{values[name] ?? "…"}</code></td>
           <td className="px-3 py-4 leading-relaxed">{usage}</td>
         </tr>)}</tbody>
@@ -51,7 +53,7 @@ function Surfaces() {
         <h2 id="pane-surfaces" className="text-lg font-semibold text-foreground">Pane surfaces</h2>
         <div className="grid gap-4 md:grid-cols-3">
           {[
-            { label: "Left sidebar", token: "muted" },
+            { label: "Left sidebar", token: "design-sidebar-surface" },
             { label: "Center pane", token: "background" },
             { label: "Right sidebar", token: "background" },
           ].map(({ label, token }) => <div key={label} className="flex min-h-32 flex-col justify-end gap-2 rounded-lg border border-border p-6" data-pane={label} style={{ backgroundColor: `var(--${token})` }}>
@@ -61,7 +63,7 @@ function Surfaces() {
       </section>
       <section className="flex flex-col gap-4" aria-labelledby="card-surfaces">
         <h2 id="card-surfaces" className="text-lg font-semibold text-foreground">Card elevation</h2>
-        <p className="text-sm leading-relaxed">Three surface levels, one shared border. These use the existing Card component; elevation changes the fill without introducing a shadow.</p>
+        <p className="text-sm leading-relaxed">These use the existing Card component and one shared border. Dark mode has three distinct fills; light mode maps middle and high to the same production neutral surface.</p>
         <div className="grid gap-4 md:grid-cols-3">
           {[
             { elevation: "low", label: "Lowest", token: "background", example: "Task summary" },
@@ -69,7 +71,7 @@ function Surfaces() {
             { elevation: "high", label: "Highest", token: "muted", example: "Related work" },
           ].map(({ elevation, label, token, example }) => <Card key={elevation} elevation={elevation as "low" | "middle" | "high"}>
             <CardHeader><CardTitle className="text-sm">{label} · {example}</CardTitle><CardDescription><code>--{token}</code></CardDescription></CardHeader>
-            <CardContent className="text-sm leading-relaxed">Default content uses muted foreground. Each card uses <code>--border</code>.</CardContent>
+            <CardContent className="text-sm leading-relaxed">Content uses the active card foreground. Each card uses <code>--border</code>.</CardContent>
           </Card>)}
         </div>
       </section>
@@ -108,9 +110,9 @@ export function ColorsPreview({ section }: ColorsPreviewProps) {
     <main className="min-h-screen bg-background px-6 py-10 text-muted-foreground sm:px-10" data-testid="color-foundations-preview">
       <div className="mx-auto flex max-w-6xl flex-col gap-10">
         <header className="flex flex-col gap-3">
-          <p className="text-xs">Design proposals · Foundations · Dark mode only</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Colors (dark mode)</h1>
-          <p className="max-w-3xl text-sm leading-relaxed">These color tokens and usage rules apply only to dark mode. Light-mode colors are not defined by this proposal. Paper’s dark-color names map to the shared semantic code tokens within the proposed dark theme.</p>
+          <p className="text-xs">Design proposals · Foundations</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Colors</h1>
+          <p className="max-w-3xl text-sm leading-relaxed">Light mode uses the production palette. Dark mode uses the Paper proposal palette. Both share semantic tokens, so components, menus and conversation states follow the selected theme.</p>
           <a className="w-fit text-sm underline underline-offset-4 hover:text-foreground" href={source} target="_blank" rel="noreferrer">View the Paper color reference</a>
         </header>
         {section === "tokens" ? <TokenReference /> : section === "surfaces" ? <Surfaces /> : <TextAndInteraction />}

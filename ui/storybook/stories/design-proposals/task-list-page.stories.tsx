@@ -5,7 +5,6 @@ const meta = {
   id: "tasks-list-page-design",
   title: "Design proposals/Pages/Tasks",
   component: TaskListPagePreview,
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     initialEntries: ["/PAP/issues"],

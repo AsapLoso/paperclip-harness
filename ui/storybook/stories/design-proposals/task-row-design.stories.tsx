@@ -209,7 +209,6 @@ const meta = {
     onDensityChange: { control: false, table: { disable: true } },
     onWidthChange: { control: false, table: { disable: true } },
   },
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     controls: { include: [] },

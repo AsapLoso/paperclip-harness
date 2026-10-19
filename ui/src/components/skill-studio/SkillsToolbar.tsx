@@ -37,13 +37,14 @@ export interface SkillsToolbarProps {
   onImport: () => void;
   onImportFromProject: () => void;
   folderControl?: ReactNode;
+  navigation?: ReactNode;
   onCreateFolder?: () => void;
   selectMode?: boolean;
   onToggleSelectMode?: () => void;
 }
 
 /** Shared shipped Skills controls. Canonical proposal: Components / Toolbars / Skills. */
-export function SkillsToolbar({ viewTitle, viewDescription, searchLabel, search, onSearchChange, sort, onSortChange, availableSources, sourceBadgeFilter, setSourceBadgeFilter, onScan, scanPending, onCreate, onBrowseDiscover, onImport, onImportFromProject, folderControl, onCreateFolder, selectMode, onToggleSelectMode }: SkillsToolbarProps) {
+export function SkillsToolbar({ viewTitle, viewDescription, searchLabel, search, onSearchChange, sort, onSortChange, availableSources, sourceBadgeFilter, setSourceBadgeFilter, onScan, scanPending, onCreate, onBrowseDiscover, onImport, onImportFromProject, folderControl, onCreateFolder, selectMode, onToggleSelectMode, navigation }: SkillsToolbarProps) {
   return (
     <div data-canonical-toolbar="skills" role="toolbar" aria-label="Skills controls" className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
       <div className="w-full">
@@ -145,6 +146,7 @@ export function SkillsToolbar({ viewTitle, viewDescription, searchLabel, search,
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {navigation ? <div className="w-full">{navigation}</div> : null}
     </div>
   );
 }

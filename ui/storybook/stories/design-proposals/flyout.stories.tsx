@@ -5,7 +5,6 @@ const meta = {
   id: "design-flyout",
   title: "Design proposals/Components/Popover",
   component: FlyoutPreview,
-  globals: { theme: "dark" },
   args: { mode: "columns", shadow: "" },
   argTypes: {
     mode: { control: "select", options: ["columns", "views", "account-menu"] },

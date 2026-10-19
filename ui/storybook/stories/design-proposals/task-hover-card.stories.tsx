@@ -6,7 +6,6 @@ const meta = {
   id: "design-task-hover-card",
   title: "Design proposals/Components/Task hover card",
   component: TaskHoverCardPreview,
-  globals: { theme: "dark" },
   args: { enabled: true, showDescription: true },
   argTypes: {
     enabled: { control: "boolean", description: "Enable the text link's existing optional hover preview. Activity keeps its preview; task summaries keep it off." },

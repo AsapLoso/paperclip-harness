@@ -6,7 +6,6 @@ const meta = {
   id: "design-segmented-controllers",
   title: "Design proposals/Components/Segmented controllers",
   component: SegmentedControllersPreview,
-  globals: { theme: "dark" },
   args: { width: "full", disableAgentActions: false },
   argTypes: {
     width: { control: "inline-radio", options: ["full", "narrow"] },

@@ -6,7 +6,6 @@ const meta = {
   id: "design-activity-list",
   title: "Design proposals/Components/Activity list",
   component: ActivityListPreview,
-  globals: { theme: "dark" },
   args: { density: "comfortable", containerWidth: "standard", withReferences: false },
   argTypes: {
     density: { control: "inline-radio", options: ["comfortable", "compact"] },

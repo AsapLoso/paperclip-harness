@@ -7,7 +7,6 @@ const meta = {
   id: "design-agent-workload-trial",
   title: "Design proposals/AI Generated Test Pages/Agent workload trial",
   component: AgentWorkloadTrial,
-  globals: { theme: "dark" },
   parameters: {
     layout: "fullscreen",
     initialEntries: ["/PAP/agents"],
