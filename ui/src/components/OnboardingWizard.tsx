@@ -2870,6 +2870,7 @@ function OnboardingWizardInner({
                             setError(null);
                             setCopilotConnection(parsed.data);
                             setModel("");
+                            if (JSON.stringify(copilotConnection) === JSON.stringify(parsed.data)) void refreshAdapterModels();
                           }} />
                           {copilotConnection && <label className="block space-y-2 text-sm">
                             <span>Model</span>
