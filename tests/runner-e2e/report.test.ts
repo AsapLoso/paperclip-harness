@@ -59,6 +59,10 @@ describe("runner E2E report aggregation", () => {
     const normalized = JSON.parse(await readFile(path.join(output, "normalized-results.json"), "utf8"));
     expect(normalized.passed).toBe(1);
     expect(normalized.results[0].usage).toEqual(usage);
+    expect(normalized.results[0].startupReuse).toHaveLength(runIds.length);
+    expect(normalized.results[0].startupReuse.every((reuse: { warmth: string; providerLaunchCount: number | null }) =>
+      reuse.warmth === "unknown" && reuse.providerLaunchCount === null)).toBe(true);
+    expect(dashboard).toContain("Startup reuse evidence");
   });
 
   it("keeps interrupted journeys incomplete unless their evidence is invalid", async () => {

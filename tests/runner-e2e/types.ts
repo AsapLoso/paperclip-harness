@@ -308,6 +308,7 @@ export interface RunnerE2EResult {
   issueId?: string;
   issueIdentifier?: string | null;
   runIds?: string[];
+  startupReuse?: Array<{ runId: string } & import("@paperclipai/adapter-utils/startup-reuse").StartupReuseSummary>;
   turnTimings?: Array<{
     turn: number;
     submittedAt: string;

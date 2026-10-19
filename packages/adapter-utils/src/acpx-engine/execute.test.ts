@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { summarizeStartupReuse } from "../startup-reuse.js";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -373,6 +374,7 @@ const ALLOWED_STARTUP_SPAN_ATTRIBUTE_KEYS = new Set<string>([
   A.rootWorkMs,
   A.rootDiffMs,
   A.coldStart,
+  A.warmth,
   A.region,
   A.imageId,
   A.sandboxId,
@@ -5855,8 +5857,9 @@ describe("ACPX engine sandbox-start spans (opt-in root + child parenting)", () =
       expect(Number.isFinite(rootSpan!.attributes[key] as number)).toBe(true);
     }
     expect(rootSpan!.attributes[A.rootWorkMs] as number).toBeGreaterThanOrEqual(0);
-    // A cold start (no warm handle) and the clamped provider family.
-    expect(rootSpan!.attributes[A.coldStart]).toBe(true);
+    // Missing lease/process evidence must not manufacture a cold label.
+    expect(rootSpan!.attributes).not.toHaveProperty(A.coldStart);
+    expect(rootSpan!.attributes[A.warmth]).toBe("unknown");
     expect(rootSpan!.attributes[A.provider]).toBe("plugin");
     // The lease id rides only as a non-reversible hash, never the raw value.
     expect(rootSpan!.attributes[A.leaseId]).toMatch(/^[0-9a-f]{12}$/);
@@ -6528,6 +6531,43 @@ describe("ACPX engine per-step startup timing (run.startup.step events)", () => 
       expect(payload).not.toHaveProperty("createRuntimeMs");
       expect(payload).not.toHaveProperty("ensureSessionMs");
     }
+  });
+
+  it.each([true, false])("derives warmth from physical reuse when the provider session stays continuous: cached=%s", async cached => {
+    const root = await makeTempRoot();
+    const warmHandles = new Map();
+    const events: Array<{ eventType: string; payload?: Record<string, unknown> }> = [];
+    let runtimeOptions: AcpRuntimeOptions;
+    const runtime = buildRuntime(undefined, () => {
+      // Exercise the real engine spawn observer, including a second launch in
+      // the same ensure call. A session ID cannot hide either startup cost.
+      void runtimeOptions.onAgentSpawn?.({ pid: process.pid, startedAt: new Date().toISOString() });
+      void runtimeOptions.onAgentSpawn?.({ pid: process.pid, startedAt: new Date().toISOString() });
+    });
+    const execute = createAcpxEngineExecutor({ warmHandles, createRuntime: options => {
+      runtimeOptions = options;
+      return runtime as never;
+    } });
+    const base = { agent: { id: "agent-1", companyId: "company-1" },
+      config: { agent: "custom", agentCommand: "node ./fake-acp.js", stateDir: path.join(root, "state"), mode: "persistent" },
+      context: {}, onLog: async () => {}, onMeta: async () => {} };
+    const first = await execute({ ...base, runId: "reuse-first", runtime: {} } as never);
+    const params = first.sessionParams!;
+    if (cached) warmHandles.set(params.sessionKey, { runtime,
+      handle: { backendSessionId: first.sessionId, agentSessionId: "agent-session", runtimeSessionName: "runtime-session" },
+      fingerprint: params.configFingerprint, lastUsedAt: Date.now(),
+      processIdentitySink: { current: undefined, latest: null },
+      childStderrState: { logPath: null, pendingLiveLine: "" } });
+    const second = await execute({ ...base, runId: "reuse-second", runtime: { sessionParams: params },
+      onEvent: async (event: { eventType: string; payload?: Record<string, unknown> }) => { events.push(event); },
+    } as never);
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(summarizeStartupReuse(events)).toMatchObject({
+      warmth: cached ? "warm" : "partial_reuse", providerLaunchCount: cached ? 0 : 2,
+      layers: { provider_session: { state: "reused" }, provider_process: { state: cached ? "reused" : "fresh" } },
+    });
   });
 
   it("runs a fresh acp.handshake on a compatible second run (host lane re-creates, no warm hit)", async () => {
