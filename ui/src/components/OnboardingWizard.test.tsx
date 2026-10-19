@@ -458,6 +458,24 @@ describe("OnboardingWizard restore-gate (stale localStorage across accounts)", (
       return { root, click };
     }
 
+    it.each(["choices", "authentication error"])("refreshes Copilot onboarding after reconnecting the same binding with cached %s", async (cachedState) => {
+      const { root, click } = await openCopilot();
+      try {
+        mockAgentsApi.adapterModels.mockReset();
+        if (cachedState === "authentication error") mockAgentsApi.adapterModels.mockRejectedValueOnce(new Error("Expired token"));
+        else mockAgentsApi.adapterModels.mockResolvedValueOnce([{ id: "old-model", label: "Old account model" }]);
+        await click("Use saved Copilot connection");
+        await vi.waitFor(() => expect(mockAgentsApi.adapterModels).toHaveBeenCalledTimes(1));
+        mockAgentsApi.adapterModels.mockResolvedValue([{ id: "new-model", label: "New account model" }]);
+        await click("Use saved Copilot connection");
+        await vi.waitFor(() => expect(mockAgentsApi.adapterModels).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(document.body.querySelector('[aria-label="Copilot model"]')?.textContent).toContain("New account model"));
+        expect(document.body.textContent).not.toContain("Old account model");
+        expect(document.body.textContent).not.toContain("Expired token");
+        expect((document.body.querySelector('[aria-label="Copilot model"]') as HTMLSelectElement).value).toBe("");
+      } finally { await act(async () => root.unmount()); }
+    });
+
     it.each([null, "copilot-daytona"])("discovers models and tests the same saved-token configuration it hires in environment %s", async (environmentId) => {
       mockInstanceSettingsApi.get.mockResolvedValue({ defaultEnvironmentId: environmentId });
       mockEnvironmentsApi.list.mockResolvedValue(environmentId ? [{ id: environmentId, name: "Daytona", driver: "sandbox", status: "active", config: { provider: "daytona" } }] : []);

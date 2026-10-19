@@ -1,10 +1,9 @@
 # GitHub Copilot runtime connection
 
-The current candidate uses the pinned Copilot CLI **1.0.88** and Paperclip Runner
-profile **v40**. This profile is being prepared for a frozen local/Daytona
-qualification campaign. Historical passes apply to their recorded builds. Current-head CI,
-review, all required live cases, and ordinary installed canaries must pass
-before rollout.
+GitHub Copilot uses a saved GitHub token and the packaged Copilot CLI **1.0.88**.
+Runtime profile **v46** passed the local and Daytona qualification campaign.
+The [qualification record](../plans/2026-10-19-copilot-qualification-v46.json)
+identifies the tested build, retained failures, and remaining release gates.
 
 On first setup, choose **GitHub Copilot** when creating your first agent. In an
 existing organization, open **Connectors → GitHub → Connect Copilot**. Create a
@@ -31,7 +30,8 @@ In an agent's **Harness / Runtime** settings, select **Paperclip Runner**,
 **ACP agents**, **GitHub Copilot**, and a model from authenticated discovery.
 Saving and reopening retain `provider: acpx`, `acpxAgent: copilot`, and that exact
 model. Auto/default and unavailable models are rejected. The qualification
-model is `gpt-5.6-luna`, subject to current authenticated availability.
+model is `gpt-5.6-luna`, subject to current authenticated availability. Reconnecting
+the same saved account refreshes its discovered models and clears the old selection.
 
 Normal package installation materializes the pinned runtime for macOS ARM64,
 macOS x64, and Linux x64. Keep installation scripts enabled. No qualification
