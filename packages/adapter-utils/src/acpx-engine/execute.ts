@@ -1,3 +1,6 @@
+import { isOpenRouterUrl, openRouterClaudeHeaders } from "@paperclipai/shared/openrouter-attribution";
+import { prepareAcpxCodexObservabilityHome } from "../codex-observability-home.js";
+import { AGENT_OBSERVABILITY_ENV_KEYS, applyObservabilityEnvironment } from "../agent-observability.js";
 import { cancellableSandboxStartup } from "./startup-cancellation.js";
 import { emitStartupReuse, environmentStartupReuse, summarizeStartupReuse, type StartupReuseReason } from "../startup-reuse.js";
 import { withAdapterExecutionPhase, type AdapterExecutionPhase } from "../execution-phase.js";
@@ -232,6 +235,7 @@ type AcpxRuntimeFactory = (options: PaperclipAcpRuntimeOptions) => AcpRuntime;
  * in-sandbox staged workspace + home, which this cache reuses.
  */
 export interface StagedRuntimeCacheEntry {
+  observabilityCompatibilityKey?: string;
   stagedRuntime: PreparedAdapterExecutionTargetRuntime;
   /**
    * The env keys the per-adapter managed-home seam mutated when it staged (e.g.
@@ -616,6 +620,7 @@ const ACPX_INHERITED_PROVIDER_ENV_KEYS: Readonly<Record<string, ReadonlySet<stri
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_CUSTOM_HEADERS",
     "ANTHROPIC_MODEL",
     "ANTHROPIC_SMALL_FAST_MODEL",
     "CLAUDE_CONFIG_DIR",
@@ -1314,6 +1319,7 @@ async function prepareCodexSkillRuntime(input: {
   env: Record<string, string>;
   moduleDir: string;
   onLog: AdapterExecutionContext["onLog"];
+  observability?: AdapterExecutionContext["observability"];
   // Step-timing seam: threaded from `buildRuntime` so the nested
   // `skills.reconcile` boundary (step 3) can emit its own `run.startup.step`
   // event at its call-site. Both optional — a caller without an event sink or
@@ -1352,6 +1358,17 @@ async function prepareCodexSkillRuntime(input: {
       apiKey,
       onLog: input.onLog,
     });
+  let launchCodexHome = effectiveCodexHome;
+  if (input.observability?.otelConfig) {
+    // Managed AI connections project a server-owned credential home into env.
+    // Only a caller override lacks this server-supplied connection attribution.
+    if (configuredCodexHome && !input.config.managedAiConnection) await input.onLog("stderr", "[paperclip] Company observability is unavailable for a caller-owned Codex home.\n");
+    else {
+      try {
+        launchCodexHome = await prepareAcpxCodexObservabilityHome(effectiveCodexHome, input.observability, input.agentId);
+      } catch { await input.onLog("stderr", "[paperclip] Company observability configuration could not be prepared; execution continues without company export.\n"); }
+    }
+  }
   const { allSkills, selectedSkills, desiredSkillNames } = await resolveSelectedRuntimeSkills(input.config, input.moduleDir);
   const skillSetKey = await buildSkillSetKey({ skills: selectedSkills, label: "codex" });
   const skillsHome = path.join(effectiveCodexHome, "skills");
@@ -1395,7 +1412,7 @@ async function prepareCodexSkillRuntime(input: {
   }
   await writeManagedCodexSkillsManifest(skillsHome, selectedSkills.map((entry) => entry.runtimeName));
 
-  input.env.CODEX_HOME = effectiveCodexHome;
+  input.env.CODEX_HOME = launchCodexHome;
 
   return {
     identity: {
@@ -2073,7 +2090,14 @@ async function buildRuntime(input: {
     // are absent from tempKeysApplied and keep their compatibility protection.
     if (!scratchKeys.has(key) || value !== scratch.dir) resolvedAdapterEnv[key] = value;
   }
+  if (acpxAgent === "claude" && isOpenRouterUrl(env.ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_BASE_URL)) {
+    env.ANTHROPIC_CUSTOM_HEADERS = openRouterClaudeHeaders(env.ANTHROPIC_CUSTOM_HEADERS ?? process.env.ANTHROPIC_CUSTOM_HEADERS);
+    resolvedAdapterEnv.ANTHROPIC_CUSTOM_HEADERS = env.ANTHROPIC_CUSTOM_HEADERS;
+  }
   if (authToken) env.PAPERCLIP_API_KEY = authToken;
+  if (input.ctx.observability) {
+    applyObservabilityEnvironment(env, input.ctx.observability);
+  }
   // For the claude agent, set model via ANTHROPIC_MODEL at startup rather than
   // via session/set_config_option — the ACP server's set_config_option handler
   // validates the value against its internal available-models list and rejects
@@ -2102,7 +2126,7 @@ async function buildRuntime(input: {
         "PAPERCLIP_AGENT_KEY_ID", "PAPERCLIP_AGENT_PUBLIC_KEY", "PAPERCLIP_AGENT_PRIVATE_KEY",
         // Preserve Codex's default secret-name exclusions. The short-lived
         // Paperclip API token is required by the agent skill's Bash/curl calls.
-        ...Object.keys(env).filter(key => key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key)),
+        ...Object.keys(env).filter(key => !(AGENT_OBSERVABILITY_ENV_KEYS as readonly string[]).includes(key) && (key === "PAPERCLIP_API_KEY" || !/key|secret|token/i.test(key))),
       ])] } : {}),
       requestedModel,
       requestedThinkingEffort,
@@ -2163,6 +2187,7 @@ async function buildRuntime(input: {
         agentId: agent.id,
         config,
         env,
+        observability: input.ctx.observability,
         moduleDir: input.engine.moduleDir,
         onLog: input.ctx.onLog,
         onEvent: input.ctx.onEvent,
@@ -2387,6 +2412,7 @@ async function buildRuntime(input: {
       target: remoteTarget,
       env,
       isCompatibleResume,
+      observabilityCompatibilityKey: input.ctx.observability?.compatibilityKey,
       stage: (assets) =>
         stageAcpRemoteRuntime({
           runId,
@@ -3667,10 +3693,12 @@ function saveStagedRuntimeAfterCleanTurn(input: {
   handles: Map<string, StagedRuntimeCacheEntry>;
   prepared: AcpxPreparedRuntime;
   now: number;
+  observabilityCompatibilityKey?: string;
 }) {
   const { prepared } = input;
   if (!prepared.stagedRuntime || prepared.remoteStagingEnvDelta === null) return;
   input.handles.set(prepared.sessionKey, {
+    observabilityCompatibilityKey: input.observabilityCompatibilityKey,
     stagedRuntime: prepared.stagedRuntime,
     envDelta: prepared.remoteStagingEnvDelta,
     teardown: prepared.remoteManagedHomeTeardown,
@@ -4420,13 +4448,14 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         // it (today's `clearWarmHandleTimer(cached)` after the reuse decision).
         let cached = canResume ? hostStore.borrow(prepared.sessionKey) : undefined;
         providerProcessReason = canResume ? "cache_miss" : Object.keys(previousParams).length ? "identity_mismatch" : "created";
-        if (cached && (ctx.context.refreshTools === true
+        if (cached && (cached.observabilityCompatibilityKey !== ctx.observability?.compatibilityKey || ctx.context.refreshTools === true
           || asString(previousParams.mcpFingerprint, "") !== shortHash(prepared.mcpIdentity)
           // MCP bearer credentials are run-scoped, even for an unchanged catalog.
           || prepared.mcpServers.length > 0)) {
+          providerProcessReason = cached.observabilityCompatibilityKey !== ctx.observability?.compatibilityKey
+            ? "configuration_changed" : "tools_changed";
           await hostStore.discard(prepared.sessionKey);
           cached = undefined;
-          providerProcessReason = "tools_changed";
         }
         childStderrState = cached?.childStderrState ?? { logPath: null, pendingLiveLine: "" };
         processIdentitySink = cached?.processIdentitySink ?? {
@@ -5716,7 +5745,7 @@ export function createAcpxEngineExecutor(deps: AcpxEngineExecutorOptions = {}) {
         settleReuse: (slots, decision) => timedPhase("settle_reuse", async () => {
           if (!slots.has("staged_runtime")) return;
           if (decision.kind === "save" && decision.savedId === "staged_runtime") {
-            saveStagedRuntimeAfterCleanTurn({ handles: stagedRuntimes, prepared, now: now() });
+            saveStagedRuntimeAfterCleanTurn({ handles: stagedRuntimes, prepared, now: now(), observabilityCompatibilityKey: ctx.observability?.compatibilityKey });
             return;
           }
           await discardStagedRuntime({ handles: stagedRuntimes, prepared });

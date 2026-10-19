@@ -43,7 +43,8 @@ describe("runner E2E report aggregation", () => {
       cleanup: "passed", runIds: startupReuse.map(reuse => reuse.runId), startupReuse,
     };
     await writeFile(path.join(directory, "result.json"), JSON.stringify(result));
-    await writeFile(path.join(directory, "evidence-manifest.json"), JSON.stringify({ files: [], leaks: [], missing: [] }));
+    await writeFile(path.join(directory, "final-state.png"), "fake-png");
+    await writeFile(path.join(directory, "evidence-manifest.json"), JSON.stringify({ files: ["final-state.png"], leaks: [], missing: [] }));
     const output = path.join(root, "merged");
     await execFileAsync(process.execPath, [path.join(repositoryRoot, "cli/node_modules/tsx/dist/cli.mjs"), path.join(repositoryRoot, "tests/runner-e2e/report.ts")], {
       cwd: repositoryRoot,
