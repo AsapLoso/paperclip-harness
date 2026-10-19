@@ -185,6 +185,7 @@ export function githubResponseCommentService(db: Db, fetchImpl = fetch) {
       let onlyExisting = false;
       let finalVersionAt: Date | undefined;
       let requestRunning = false;
+      let requestPaused = false;
       let preserveFinal = false;
       if (finalBody === undefined) {
         const existing = await stageResponse(db, source);
@@ -215,12 +216,14 @@ export function githubResponseCommentService(db: Db, fetchImpl = fetch) {
           if (existing.result?.final === true) return existing.result.id ? { id: String(existing.result.id), url: String(existing.result.url) } : undefined;
           preserveFinal = reply === "confirmed";
           onlyExisting = reply === "confirmed" && !existing.result?.id;
+          requestPaused = source.issueStatus === "blocked" && !ownsLatestRequest;
           finalBody = reply === "confirmed" ? "This request has been handled. See the response in this conversation."
-            : source.issueStatus === "blocked" && !ownsLatestRequest ? "Work is paused. Your request is saved. See the Paperclip task for details."
+            : requestPaused ? "Work is paused. Your request is saved. See the Paperclip task for details."
             : run.status === "succeeded" ? "This turn ended without publishing a final response. See the Paperclip task for details."
             : "This turn stopped before completing. See the Paperclip task for details.";
           finalVersionAt = new Date(Math.max(run.updatedAt.getTime(), source.delivery.createdAt.getTime()));
         } else if (source.issueStatus === "blocked" && latestRun?.status !== "running") {
+          requestPaused = true;
           finalBody = "Work is paused. Your request is saved. See the Paperclip task for details.";
           finalVersionAt = source.delivery.createdAt;
         } else if (existing.result?.id && (!isMainPullResponse(source) ||
@@ -263,7 +266,7 @@ export function githubResponseCommentService(db: Db, fetchImpl = fetch) {
         return;
       }
       return writeGitHubResponseComment(db, source, api, lease,
-        { body: finalBody ?? (isMainPullResponse(source) && !requestRunning ? "Review queued…" : "Working on this…"), final: finalBody !== undefined,
+        { body: finalBody ?? (isMainPullResponse(source) && !requestRunning ? "Review queued…" : "Working on this…"), final: finalBody !== undefined && !requestPaused,
           acknowledgement: finalBody === undefined, preserveFinal,
           ...(finalBody !== undefined ? { versionAt: finalVersionAt ?? new Date() } : {}) }, assertCurrent);
     });

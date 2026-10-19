@@ -280,7 +280,8 @@ settle a deleted earlier working comment without blocking the current response,
 review findings, or check publication. Failed runs
 update the same comment when no final reply is confirmed or unresolved. Maintenance
 also reconciles acknowledged requests when recovery stops before a publication
-is staged. Requests saved on a blocked task report that work is paused; an older
+is staged. Requests saved on a blocked task report that work is paused and stay
+open for resumed progress or stopped-run cleanup. An older
 run cannot replace a newer run's response. A run
 that ends without a final reply clears a remaining working state honestly.
 Repository restrictions, person authorization and governed tool checks remain

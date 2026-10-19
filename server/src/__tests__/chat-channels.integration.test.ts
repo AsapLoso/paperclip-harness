@@ -2784,6 +2784,33 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       expect(body).not.toContain("has been handled");
       expect(f.responseComments.size).toBe(1);
     });
+    it.each([["failed", false], ["failed", true], ["queued", false], ["queued", true]] as const)(
+      "resumes a paused GitHub request and reconciles stopped execution (prior run: %s, progress: %s)", async (status, progress) => {
+        const f = await toolReplyFixture("github:paperclipai/paperclip:418");
+        await db.update(heartbeatRuns).set({ status }).where(eq(heartbeatRuns.id, f.run.id));
+        await db.update(issues).set({ status: "blocked" }).where(eq(issues.id, f.conversation.issueId!));
+        const thread = makeThread({ channelId: "paperclipai/paperclip", id: f.conversation.externalThreadId }).thread;
+        await deliverMessage({ callbacks: f.callbacks, endpointId: f.endpoint.id, provider: "github", thread,
+          trigger: "mention", message: makeMessage({ id: "41802", text: "New request", userId: "42", userName: "octocat", mentioned: true }) });
+        const responses = githubResponseCommentService(db, f.providerFetch);
+        await responses.processPending();
+        expect([...f.responseComments.values()][0].body).toContain("paused");
+        await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, f.conversation.issueId!));
+        const [next] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.assignedAgentId,
+          status: "running", runtimeMode: "native", contextSnapshot: await chatWakeContext({
+            endpointId: f.endpoint.id, issueId: f.conversation.issueId, provider: "github", providerMessageId: "41802",
+          }) }).returning();
+        const session = { ...f.session, runId: next.id };
+        if (progress) {
+          expect(await githubChatReviewService(db, f.providerFetch).execute(session, "update_comment",
+            { body: "Resumed request progress", idempotencyKey: "resumed-progress" })).toMatchObject({ status: "processed" });
+          expect([...f.responseComments.values()][0].body).toContain("Resumed request progress");
+        }
+        await db.update(heartbeatRuns).set({ status: "failed" }).where(eq(heartbeatRuns.id, next.id));
+        await responses.failRun({ ...session, endpointId: f.endpoint.id, body: "Resumed work stopped" });
+        expect(f.responseComments.size).toBe(1);
+        expect([...f.responseComments.values()][0].body).toContain("Resumed work stopped");
+      });
     it("preserves a final GitHub assessment while settling an incomplete request receipt", async () => {
       const f = await publicationRetryFixture();
       await f.service.execute(f.session, "submit_review", f.assessment, "published-assessment");
