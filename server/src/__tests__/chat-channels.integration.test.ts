@@ -2795,6 +2795,10 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         const responses = githubResponseCommentService(db, f.providerFetch);
         await responses.processPending();
         expect([...f.responseComments.values()][0].body).toContain("paused");
+        const pausedWrites = f.responseWrites.length;
+        await responses.processPending();
+        await responses.processPending();
+        expect(f.responseWrites).toHaveLength(pausedWrites);
         await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, f.conversation.issueId!));
         const [next] = await db.insert(heartbeatRuns).values({ companyId: f.companyId, agentId: f.assignedAgentId,
           status: "running", runtimeMode: "native", contextSnapshot: await chatWakeContext({

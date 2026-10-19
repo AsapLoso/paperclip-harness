@@ -112,7 +112,7 @@ export async function writeGitHubResponseComment(
   const sameRequest = !shared || previous?.body?.includes(requestResponseMarker(source)) === true;
   const alreadyFinal = sameRequest && previous?.body?.includes("<!-- paperclip-response-state:final -->") === true;
   const body = `${projectSafeChatPublicationText(input.body)}\n\n${marker}${shared ? `\n${requestResponseMarker(source)}` : ""}\n<!-- paperclip-response-version:${versionAt.toISOString()} -->${input.final ? "\n<!-- paperclip-response-state:final -->" : ""}`;
-  const preserved = previous && ((input.acknowledgement && sameRequest) || (alreadyFinal && !input.final) ||
+  const preserved = previous && (previous.body === body || (input.acknowledgement && sameRequest) || (alreadyFinal && !input.final) ||
     (input.preserveFinal && previous.body?.includes("<!-- paperclip-response-state:final -->"))) ? previous : null;
   const posted = preserved && (!shared || preserved.body?.includes(marker)) ? preserved : await api.request<Comment>(
     previous ? `${item}/${previous.id}` : source.replyId
