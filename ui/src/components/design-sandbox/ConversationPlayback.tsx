@@ -12,8 +12,8 @@ import { settledPreviewReply } from "./settled-preview-reply";
 
 /** A local clock feeds cumulative synthetic transcript snapshots into the real
  * conversation renderer. One thread persists throughout; no fixture carousel. */
-export function ConversationPlayback({ header, agentName, agent }: {
-  header: ReactNode; agentName: string; agent?: Agent;
+export function ConversationPlayback({ header, agentName, agent, onShowSavedThread }: {
+  header: ReactNode; agentName: string; agent?: Agent; onShowSavedThread?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
   const [started, setStarted] = useState(false);
@@ -62,6 +62,7 @@ export function ConversationPlayback({ header, agentName, agent }: {
         {ended ? "Replay conversation" : playing ? "Pause" : started ? "Resume conversation" : "Play conversation"}
       </Button>
       {started && !ended ? <Button size="sm" variant="ghost" onClick={restart}><RotateCcw />Replay</Button> : null}
+      {onShowSavedThread ? <Button size="sm" variant="ghost" onClick={onShowSavedThread}>Show saved thread</Button> : null}
       <span className="text-muted-foreground" role="status">{started ? ended ? "Conversation complete" : `${playing ? "" : "Paused · "}${CONVERSATION_PLAYBACK_STAGES[stage]?.label}` : "Watch a typical conversation · synthetic preview"}</span>
     </div>
     <TaskChatThreadView key={generation} header={header} items={started ? [human] : []} contentKey={`${elapsed}:${generation}`} tail={started ? <div className="flex flex-col gap-8">

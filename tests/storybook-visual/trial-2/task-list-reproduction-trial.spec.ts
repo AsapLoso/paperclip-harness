@@ -134,7 +134,7 @@ test.describe("independent second trial", () => {
     await page.getByRole("button", { name: "Board view", exact: true }).click();
     expect(await componentNames(page)).toContain("KanbanBoard");
     const index = await (await page.request.get("/index.json")).json();
-    expect(index.entries[storyId].title).toBe("Design proposals/Pages/Tasks reproduction test 2");
+    expect(index.entries[storyId].title).toBe("Design proposals/AI Generated Test Pages/Tasks reproduction test 2");
     expect(errors).toEqual([]);
     writeFileSync(join(evidence!, "reuse-audit.json"), JSON.stringify({ storyId, renderedComponents: names, boardComponent: "KanbanBoard", controllerImportsSharedCollection: true, duplicatedCollectionLogicDetected: false, forbiddenCompositionDetected: false, browserErrors: errors }, null, 2));
   });

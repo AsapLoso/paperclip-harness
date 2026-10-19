@@ -48,7 +48,7 @@ test("matches the pre-implementation frozen reference and mounts canonical compo
   expect(controller).not.toMatch(/TaskListPagePreview|style=|<button|<input|<table|<svg|#[0-9a-f]{6}|\[\d+px\]/i);
   expect(errors).toEqual([]);
   const index = await (await page.request.get("/index.json")).json();
-  expect(index.entries[storyId].title).toBe("Design proposals/Pages/Tasks reproduction test");
+  expect(index.entries[storyId].title).toBe("Design proposals/AI Generated Test Pages/Tasks reproduction test");
 });
 
 for (const target of [storyId, "tasks-list-page-design--default"]) {

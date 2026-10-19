@@ -155,7 +155,15 @@ it("plays one cumulative conversation, freezes on pause, settles and replays loc
   await act(async () => button("Replay conversation").click());
   expect(playback().getAttribute("data-playback-stage")).toBe("0");
   expect(host.querySelector('[data-testid="task-chat-agent-bubble"]')).toBeNull();
+  await act(async () => button("Show saved thread").click());
+  expect(host.textContent).toContain("Saved conversation");
+  expect(host.querySelector('[data-testid="conversation-playback"]')).toBeNull();
   expect(network).not.toHaveBeenCalled();
+});
+it("shows the saved conversation for an unknown playback preview", () => {
+  render("?threadPreview=unknown", true, "playback");
+  expect(host.textContent).toContain("Saved conversation");
+  expect(host.querySelector('[data-testid="conversation-playback"]')).toBeNull();
 });
 it("retains the saved conversation on ordinary tasks in playback mode", () => {
   render("", false, "playback");

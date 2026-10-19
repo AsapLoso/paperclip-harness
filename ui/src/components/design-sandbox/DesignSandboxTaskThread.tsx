@@ -52,7 +52,7 @@ export default function DesignSandboxTaskThread({
   const cases = selected === "all" ? THREAD_PREVIEW_CASES : THREAD_PREVIEW_CASES.filter(item => item.id === selected);
   useEffect(() => { if (viewport.current) viewport.current.scrollTop = 0; }, [selected]);
 
-  if (previewMode === "playback" && requested !== "saved") return <TaskChatPresentationProvider mode={streamlined ? "streamlined" : "production"}><ConversationPlayback header={header} agentName={agentName} agent={agent} /></TaskChatPresentationProvider>;
+  if (previewMode === "playback" && selected !== "saved") return <TaskChatPresentationProvider mode={streamlined ? "streamlined" : "production"}><ConversationPlayback header={header} agentName={agentName} agent={agent} onShowSavedThread={() => choose("saved")} /></TaskChatPresentationProvider>;
 
   return <div className="flex min-h-0 flex-1 flex-col" data-testid="sandbox-task-thread" data-preview-state={selected}>
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background py-2 text-xs">
