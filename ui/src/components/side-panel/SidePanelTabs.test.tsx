@@ -200,7 +200,7 @@ describe("SidePanelTabs", () => {
     )?.parentElement;
     expect(tabTrack?.className).toContain("w-full");
     expect(tabTrack?.className).toContain("justify-start");
-    expect(propertiesWrapper?.className).toContain("w-max");
+    expect(propertiesWrapper?.className).not.toContain("w-max");
     expect(propertiesWrapper?.className).toContain("side-panel-streamlined-tab");
     expect(propertiesWrapper?.className).toContain("max-w-(--side-panel-streamlined-tab-max-width)");
     expect(propertiesWrapper?.className).not.toContain("flex-1");

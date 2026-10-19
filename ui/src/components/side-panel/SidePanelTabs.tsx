@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -68,7 +69,7 @@ function SortableSidePanelTab({
       }}
       className={cn(
         appearance === "streamlined-task"
-          ? "side-panel-streamlined-tab relative mx-0.75 flex w-max max-w-(--side-panel-streamlined-tab-max-width) shrink items-center"
+          ? "side-panel-streamlined-tab relative mx-0.75 flex max-w-(--side-panel-streamlined-tab-max-width) shrink items-center"
           : "relative",
         sortable.isDragging && (appearance === "streamlined-task" ? "opacity-0" : "z-20 opacity-80"),
       )}
@@ -169,6 +170,7 @@ export function SidePanelTabs({
 }: SidePanelTabsProps) {
   const [announcement, setAnnouncement] = useState("");
   const [showEndFade, setShowEndFade] = useState(false);
+  const [useWideTabs, setUseWideTabs] = useState(false);
   const [draggedTab, setDraggedTab] = useState<{ id: string; width: number; labelIsTruncated: boolean } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
@@ -179,6 +181,28 @@ export function SidePanelTabs({
   );
   const tabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
   const draggedTabItem = draggedTab ? tabs.find((tab) => tab.id === draggedTab.id) : null;
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element || appearance !== "streamlined-task") return;
+    const labels = Array.from(element.querySelectorAll<HTMLElement>("[data-side-panel-tab-label-content]"));
+    const updateSharedWidth = () => {
+      const compactWidth = parseFloat(getComputedStyle(element).getPropertyValue("--side-panel-streamlined-tab-min-width"));
+      // Measure intrinsic text against the compact width, regardless of the current
+      // row width. Using current truncation would oscillate between the two sizes.
+      setUseWideTabs(labels.some((content) => {
+        const label = content.parentElement!;
+        const wrapper = content.closest<HTMLElement>("[data-side-panel-tab-wrapper]")!;
+        const chromeWidth = wrapper.getBoundingClientRect().width - label.getBoundingClientRect().width;
+        return content.getBoundingClientRect().width + chromeWidth > compactWidth;
+      }));
+    };
+    updateSharedWidth();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateSharedWidth);
+    observer?.observe(element);
+    labels.forEach((label) => observer?.observe(label));
+    return () => observer?.disconnect();
+  }, [appearance, tabs]);
 
   function findTabElement(tabId: string, selector: "wrapper" | "target") {
     const attribute = selector === "wrapper"
@@ -306,6 +330,7 @@ export function SidePanelTabs({
         ref={scrollRef}
         role="tablist"
         aria-orientation="horizontal"
+        data-tab-sizing={appearance === "streamlined-task" ? (useWideTabs ? "wide" : "compact") : undefined}
         data-scroll-end-fade={appearance === "streamlined-task" && showEndFade ? "true" : undefined}
         className={cn(
           "side-panel-tabs-scroll min-w-0 flex-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",

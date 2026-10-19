@@ -54,7 +54,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: "Resize the preview to see nine starting tabs share the available width. Tabs start at 100px, then shrink together as the pane narrows. Use the plus button to add tabs. Hover the tabs and close buttons to inspect the active fill, clipped-label fade, and round close hover.",
+        component: "Resize the preview to see nine starting tabs share the available width equally. All tabs use 100px when their labels fit, or 125px when any label needs more room, then shrink together as the pane narrows. Close the longer tabs to inspect compact sizing. Use the plus button to add tabs. Hover the tabs and close buttons to inspect the active fill, clipped-label fade, and round close hover.",
       },
     },
     paperclip: {

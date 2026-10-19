@@ -148,7 +148,9 @@ export function SidePanelTab({
                 labelIsTruncated && "side-panel-tab-label-fade",
               )}
             >
-              {label}
+              {appearance === "streamlined-task" ? (
+                <span data-side-panel-tab-label-content className="inline-block">{label}</span>
+              ) : label}
             </span>
             {status ? (
               <span className={cn(

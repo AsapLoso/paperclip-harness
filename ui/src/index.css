@@ -331,7 +331,7 @@
   --side-panel-mobile-tabs-width: min(calc(100vw - var(--spacing) * 4), 24rem);
   --side-panel-mobile-tabs-max-height: 60dvh;
   --side-panel-streamlined-tab-min-width: var(--sz-100px);
-  --side-panel-streamlined-tab-max-width: var(--sz-160px);
+  --side-panel-streamlined-tab-max-width: 125px;
   --side-panel-streamlined-tab-collapse-floor: var(--sz-48px);
   --side-panel-streamlined-tab-inline-space: calc(var(--spacing) * 1.5);
   --side-panel-streamlined-tab-padding-left: calc(var(--spacing) * 1.5 + var(--sz-4px));
@@ -868,11 +868,20 @@ select:where(:not([multiple]):not(.appearance-none)):where(:not([size]), [size="
 
 /* Keep every streamlined tab at its preferred width until the row must compress.
    The usable floor leaves the close action accessible before horizontal scrolling. */
+[data-tab-sizing="compact"] {
+  --side-panel-streamlined-tab-width: var(--side-panel-streamlined-tab-min-width);
+}
+
+[data-tab-sizing="wide"] {
+  --side-panel-streamlined-tab-width: var(--side-panel-streamlined-tab-max-width);
+}
+
 .side-panel-streamlined-tab {
-  min-width: max(
+  min-width: var(--side-panel-streamlined-tab-collapse-floor);
+  width: max(
     var(--side-panel-streamlined-tab-collapse-floor),
     min(
-      var(--side-panel-streamlined-tab-min-width),
+      var(--side-panel-streamlined-tab-width),
       calc(100% / var(--side-panel-streamlined-tab-count) - var(--side-panel-streamlined-tab-inline-space))
     )
   );
