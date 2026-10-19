@@ -12,7 +12,6 @@ import {
 } from "@paperclipai/db";
 import { logger } from "../../middleware/logger.js";
 import { nativeHarnessStateBase } from "./native-harness-backup-stamp.js";
-import { removeNativeHarnessBackup } from "./native-harness-backup-cleanup.js";
 import { nativeSessionScopeDigestIsBusy } from "./native-session-executor.js";
 
 export const NATIVE_HARNESS_BACKUP_EXPIRATION_INTERVAL_MS = 60 * 60 * 1000;
@@ -23,6 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const SCOPE_PATTERN = /^[0-9a-f]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXPIRED_PREFIX = ".expired-";
+const RETIRING_PREFIX = ".retiring-";
 const LIVE_RUN_STATUSES = ["queued", "scheduled_retry", "running"];
 const SETTLED_FINALIZATION_PHASES = ["committed", "terminal_failure"];
 const LIVE_LEASE_STATUSES = ["active", "released", "retained", "pending_cleanup"];
@@ -74,6 +74,17 @@ function emptyResult(): NativeHarnessBackupExpirationResult {
 async function isRealDirectory(target: string): Promise<boolean> {
   const stat = await fs.lstat(target).catch(() => null);
   return Boolean(stat?.isDirectory() && !stat.isSymbolicLink());
+}
+
+async function removeBackupTree(target: string): Promise<void> {
+  const prepare = async (current: string): Promise<void> => {
+    const stat = await fs.lstat(current).catch(() => null);
+    if (!stat?.isDirectory()) return;
+    await fs.chmod(current, (stat.mode & 0o777) | 0o700);
+    for (const name of await fs.readdir(current)) await prepare(path.join(current, name));
+  };
+  await prepare(target);
+  await fs.rm(target, { recursive: true, force: true });
 }
 
 async function allocatedBytes(target: string): Promise<number> {
@@ -212,10 +223,16 @@ export function nativeHarnessBackupExpirationService(
 ) {
   let cursor: string | null = null;
 
-  async function removeExpiredLeftovers(backupRoot: string) {
+  async function settleLeftovers(backupRoot: string) {
+    const current = path.join(backupRoot, "current");
     for (const name of await fs.readdir(backupRoot).catch(() => [] as string[])) {
-      if (!name.startsWith(EXPIRED_PREFIX) || !UUID_PATTERN.test(name.slice(EXPIRED_PREFIX.length))) continue;
-      removeNativeHarnessBackup(path.join(backupRoot, name));
+      const target = path.join(backupRoot, name);
+      if (name.startsWith(RETIRING_PREFIX) && UUID_PATTERN.test(name.slice(RETIRING_PREFIX.length))) {
+        if (!(await isRealDirectory(current))) await fs.rename(target, current);
+        else await removeBackupTree(target);
+      } else if (name.startsWith(EXPIRED_PREFIX) && UUID_PATTERN.test(name.slice(EXPIRED_PREFIX.length))) {
+        await removeBackupTree(target);
+      }
     }
   }
 
@@ -232,7 +249,7 @@ export function nativeHarnessBackupExpirationService(
     };
     const backupRoot = path.join(root, "failover-backups");
     const current = path.join(backupRoot, "current");
-    if (!options.dryRun) await removeExpiredLeftovers(backupRoot);
+    if (!options.dryRun) await settleLeftovers(backupRoot);
     if (!(await isRealDirectory(current))) return skip("no_backup");
     if (await fs.lstat(path.join(root, "cleanup-activation.json")).then(() => true, () => false)) {
       return skip("cleanup_active");
@@ -271,13 +288,23 @@ export function nativeHarnessBackupExpirationService(
     if (options.dryRun) return;
     result.clearedTaskSessions += decision.cleared;
     if (options.isSessionBusy(scopeDigest)) return skip("session_active");
-    const trash = path.join(backupRoot, `${EXPIRED_PREFIX}${randomUUID()}`);
-    await fs.rename(current, trash);
-    if (await hasLiveRun(db, decision.owner, identity.normalizedSessionId)) {
-      await fs.rename(trash, current);
+    const id = randomUUID();
+    const retiring = path.join(backupRoot, `${RETIRING_PREFIX}${id}`);
+    const trash = path.join(backupRoot, `${EXPIRED_PREFIX}${id}`);
+    await fs.rename(current, retiring);
+    let liveRun: boolean;
+    try {
+      liveRun = await hasLiveRun(db, decision.owner, identity.normalizedSessionId);
+    } catch (err) {
+      await fs.rename(retiring, current);
+      throw err;
+    }
+    if (liveRun) {
+      await fs.rename(retiring, current);
       return skip("live_run");
     }
-    removeNativeHarnessBackup(trash);
+    await fs.rename(retiring, trash);
+    await removeBackupTree(trash);
     result.expired++;
     result.reclaimedBytes += bytes;
   }
@@ -293,7 +320,7 @@ export function nativeHarnessBackupExpirationService(
     const shouldContinue = options.shouldContinue ?? defaults.shouldContinue ?? (() => true);
     const isSessionBusy = options.isSessionBusy ?? defaults.isSessionBusy ?? nativeSessionScopeDigestIsBusy;
     const base = path.resolve(options.stateBase ?? defaults.stateBase ?? nativeHarnessStateBase());
-    const closedBefore = new Date((options.now ?? new Date()).getTime() - closedForDays * DAY_MS);
+    const closedBefore = new Date((options.now ?? defaults.now ?? new Date()).getTime() - closedForDays * DAY_MS);
     const result = emptyResult();
 
     const names = (await fs.readdir(base).catch(() => [] as string[]))

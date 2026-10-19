@@ -69,8 +69,11 @@ batch, starting two minutes after readiness. A copy expires when all of these ho
 The sweep checks and locks these rows in one transaction, and removes the agent task
 session that points at the session there. A reopened issue therefore starts a fresh
 native session instead of resuming the expired one. The copy is atomically renamed to
-`failover-backups/.expired-<UUID>` before deletion; if a run of the session appears
-in the meantime, the rename is undone. A later sweep finishes an interrupted deletion.
+`failover-backups/.retiring-<UUID>`, and a final check looks for a run of the session.
+If one appeared, or the check fails, the rename is undone. Only a confirmed copy is
+renamed to `.expired-<UUID>` and deleted asynchronously. A later sweep restores an
+unconfirmed `.retiring-*` copy when `current` is missing, drops it when a newer
+`current` exists, and finishes an interrupted deletion.
 The rest of the session directory, including its control-plane state, is kept.
 
 | Environment variable | Default | Effect |

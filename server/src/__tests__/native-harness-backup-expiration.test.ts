@@ -234,6 +234,40 @@ describeEmbeddedPostgres("native harness backup expiration", () => {
     for (const session of sessions) expect(await exists(session.current)).toBe(false);
   });
 
+  it("uses the configured clock for the closed window", async () => {
+    const session = await seedSession({ closedDaysAgo: 8, backupAgeDays: 20 });
+    const early = nativeHarnessBackupExpirationService(db, {
+      stateBase,
+      now: new Date(now.getTime() - 2 * DAY_MS),
+      isSessionBusy: () => false,
+    });
+    expect((await early.tick()).skipped.recently_closed).toBe(1);
+    expect(await exists(session.current)).toBe(true);
+    expect(await service().tick()).toMatchObject({ expired: 1 });
+  });
+
+  it("restores a backup whose expiry stopped before its final check", async () => {
+    const session = await seedSession({ issueStatus: "in_progress" });
+    const retiring = path.join(session.root, "failover-backups", `.retiring-${randomUUID()}`);
+    await fs.rename(session.current, retiring);
+
+    await service().tick();
+
+    expect(await exists(retiring)).toBe(false);
+    expect(await exists(path.join(session.current, "manifest.json"))).toBe(true);
+  });
+
+  it("drops an unconfirmed retired backup once a newer backup exists", async () => {
+    const session = await seedSession({ issueStatus: "in_progress" });
+    const retiring = path.join(session.root, "failover-backups", `.retiring-${randomUUID()}`);
+    await fs.mkdir(path.join(retiring, "codex-home"), { recursive: true });
+
+    await service().tick();
+
+    expect(await exists(retiring)).toBe(false);
+    expect(await exists(path.join(session.current, "manifest.json"))).toBe(true);
+  });
+
   it("finishes removing a backup left over from an interrupted expiry", async () => {
     const session = await seedSession({ issueStatus: "in_progress" });
     const leftover = path.join(session.root, "failover-backups", `.expired-${randomUUID()}`);
