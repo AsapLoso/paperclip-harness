@@ -208,3 +208,8 @@ it.skipIf(process.platform === "win32")("installed startup rejects stale daemon/
   await expect(probeInstalledCodexStartup({ consumerRoot: wrong.root, serverRoot: wrong.server, expectedRunnerSha256: wrong.expectedRunnerSha256 })).rejects.toThrow("matching native identity");
   expect(await readFile(wrong.observations, "utf8").then(JSON.parse)).toMatchObject({ calls: ["open", "session-close"] });
 });
+
+it("installed startup rejects ambient Node injection before launching", async () => {
+  vi.stubEnv("NODE_PATH", "/untrusted/test-path");
+  await expect(probeInstalledCodexStartup({ consumerRoot: "/unused", serverRoot: "/unused", expectedRunnerSha256: "0".repeat(64) })).rejects.toThrow("forbids NODE_PATH");
+});

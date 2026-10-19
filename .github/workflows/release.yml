@@ -354,7 +354,6 @@ jobs:
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       required: ${{ steps.source.outputs.required }}
-      provider_pack_required: ${{ steps.source.outputs.provider_pack_required }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -370,15 +369,10 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]] || exit 1
           echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           source_script="$(git show "$SOURCE_SHA:scripts/release.sh")" || exit 1
-          if printf '%s\n' "$source_script" | grep -F -e 'assemble-daemons "$PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR"' -e 'scripts/assemble-release-runner-inputs.mjs' > /dev/null; then
+          if printf '%s\n' "$source_script" | grep -F 'assemble-daemons "$PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR"' > /dev/null; then
             echo "required=true" >> "$GITHUB_OUTPUT"
           else
             echo "required=false" >> "$GITHUB_OUTPUT"
-          fi
-          if printf '%s\n' "$source_script" | grep -F 'scripts/assemble-release-runner-inputs.mjs' > /dev/null; then
-            echo "provider_pack_required=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "provider_pack_required=false" >> "$GITHUB_OUTPUT"
           fi
 
   release_runner_binaries:
@@ -388,7 +382,6 @@ jobs:
     with:
       ref: ${{ needs.release_runner_source.outputs.sha }}
       runner_binaries_only: true
-      include_remote_provider_pack: ${{ needs.release_runner_source.outputs.provider_pack_required == 'true' }}
 
   publish_canary:
     if: ${{ !cancelled() && github.event_name == 'push' && needs.verify_canary.result == 'success' && needs.release_runner_source.result == 'success' && (needs.release_runner_source.outputs.required == 'false' || needs.release_runner_binaries.result == 'success') }}
@@ -437,22 +430,19 @@ jobs:
           pattern: ${{ needs.release_runner_binaries.outputs.runner_artifact_prefix }}-*
           path: ${{ runner.temp }}/release-runner-inputs
           merge-multiple: true
-      - name: Download exact-source Linux provider-pack authority
-        if: needs.release_runner_source.outputs.provider_pack_required == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Download target-owned Linux provider-pack identities
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact }}
-          path: ${{ runner.temp }}/release-provider-pack
-      - name: Bind daemon and provider-pack inputs for release assembly
+          pattern: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact_prefix }}-*
+          path: ${{ runner.temp }}/release-provider-pack-inputs
+          merge-multiple: true
+      - name: Bind provider-pack inputs for release assembly
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        run: echo "PAPERCLIP_RELEASE_PROVIDER_PACK_ARTIFACTS_DIR=$RUNNER_TEMP/release-provider-pack-inputs" >> "$GITHUB_ENV"
+      - name: Bind daemon inputs for release assembly
         if: needs.release_runner_source.outputs.required == 'true'
-        env:
-          REQUIRES_PROVIDER_PACK: ${{ needs.release_runner_source.outputs.provider_pack_required }}
-        run: |
-          echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
-          if [[ "$REQUIRES_PROVIDER_PACK" == true ]]; then
-            (cd "$RUNNER_TEMP/release-provider-pack" && sha256sum --check provider-pack.json.sha256)
-            echo "PAPERCLIP_RELEASE_RUNNER_PROVIDER_PACK_MANIFEST=$RUNNER_TEMP/release-provider-pack/provider-pack.json" >> "$GITHUB_ENV"
-          fi
+        run: echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -747,22 +737,19 @@ jobs:
           pattern: ${{ needs.release_runner_binaries.outputs.runner_artifact_prefix }}-*
           path: ${{ runner.temp }}/release-runner-inputs
           merge-multiple: true
-      - name: Download exact-source Linux provider-pack authority
-        if: needs.release_runner_source.outputs.provider_pack_required == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Download target-owned Linux provider-pack identities
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact }}
-          path: ${{ runner.temp }}/release-provider-pack
-      - name: Bind daemon and provider-pack inputs for release assembly
+          pattern: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact_prefix }}-*
+          path: ${{ runner.temp }}/release-provider-pack-inputs
+          merge-multiple: true
+      - name: Bind provider-pack inputs for release assembly
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        run: echo "PAPERCLIP_RELEASE_PROVIDER_PACK_ARTIFACTS_DIR=$RUNNER_TEMP/release-provider-pack-inputs" >> "$GITHUB_ENV"
+      - name: Bind daemon inputs for release assembly
         if: needs.release_runner_source.outputs.required == 'true'
-        env:
-          REQUIRES_PROVIDER_PACK: ${{ needs.release_runner_source.outputs.provider_pack_required }}
-        run: |
-          echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
-          if [[ "$REQUIRES_PROVIDER_PACK" == true ]]; then
-            (cd "$RUNNER_TEMP/release-provider-pack" && sha256sum --check provider-pack.json.sha256)
-            echo "PAPERCLIP_RELEASE_RUNNER_PROVIDER_PACK_MANIFEST=$RUNNER_TEMP/release-provider-pack/provider-pack.json" >> "$GITHUB_ENV"
-          fi
+        run: echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -1039,22 +1026,19 @@ jobs:
           pattern: ${{ needs.release_runner_binaries.outputs.runner_artifact_prefix }}-*
           path: ${{ runner.temp }}/release-runner-inputs
           merge-multiple: true
-      - name: Download exact-source Linux provider-pack authority
-        if: needs.release_runner_source.outputs.provider_pack_required == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Download target-owned Linux provider-pack identities
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact }}
-          path: ${{ runner.temp }}/release-provider-pack
-      - name: Bind daemon and provider-pack inputs for release assembly
+          pattern: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact_prefix }}-*
+          path: ${{ runner.temp }}/release-provider-pack-inputs
+          merge-multiple: true
+      - name: Bind provider-pack inputs for release assembly
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        run: echo "PAPERCLIP_RELEASE_PROVIDER_PACK_ARTIFACTS_DIR=$RUNNER_TEMP/release-provider-pack-inputs" >> "$GITHUB_ENV"
+      - name: Bind daemon inputs for release assembly
         if: needs.release_runner_source.outputs.required == 'true'
-        env:
-          REQUIRES_PROVIDER_PACK: ${{ needs.release_runner_source.outputs.provider_pack_required }}
-        run: |
-          echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
-          if [[ "$REQUIRES_PROVIDER_PACK" == true ]]; then
-            (cd "$RUNNER_TEMP/release-provider-pack" && sha256sum --check provider-pack.json.sha256)
-            echo "PAPERCLIP_RELEASE_RUNNER_PROVIDER_PACK_MANIFEST=$RUNNER_TEMP/release-provider-pack/provider-pack.json" >> "$GITHUB_ENV"
-          fi
+        run: echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -1433,22 +1417,19 @@ jobs:
           pattern: ${{ needs.release_runner_binaries.outputs.runner_artifact_prefix }}-*
           path: ${{ runner.temp }}/release-runner-inputs
           merge-multiple: true
-      - name: Download exact-source Linux provider-pack authority
-        if: needs.release_runner_source.outputs.provider_pack_required == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Download target-owned Linux provider-pack identities
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact }}
-          path: ${{ runner.temp }}/release-provider-pack
-      - name: Bind daemon and provider-pack inputs for release assembly
+          pattern: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact_prefix }}-*
+          path: ${{ runner.temp }}/release-provider-pack-inputs
+          merge-multiple: true
+      - name: Bind provider-pack inputs for release assembly
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        run: echo "PAPERCLIP_RELEASE_PROVIDER_PACK_ARTIFACTS_DIR=$RUNNER_TEMP/release-provider-pack-inputs" >> "$GITHUB_ENV"
+      - name: Bind daemon inputs for release assembly
         if: needs.release_runner_source.outputs.required == 'true'
-        env:
-          REQUIRES_PROVIDER_PACK: ${{ needs.release_runner_source.outputs.provider_pack_required }}
-        run: |
-          echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
-          if [[ "$REQUIRES_PROVIDER_PACK" == true ]]; then
-            (cd "$RUNNER_TEMP/release-provider-pack" && sha256sum --check provider-pack.json.sha256)
-            echo "PAPERCLIP_RELEASE_RUNNER_PROVIDER_PACK_MANIFEST=$RUNNER_TEMP/release-provider-pack/provider-pack.json" >> "$GITHUB_ENV"
-          fi
+        run: echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -1504,22 +1485,19 @@ jobs:
           pattern: ${{ needs.release_runner_binaries.outputs.runner_artifact_prefix }}-*
           path: ${{ runner.temp }}/release-runner-inputs
           merge-multiple: true
-      - name: Download exact-source Linux provider-pack authority
-        if: needs.release_runner_source.outputs.provider_pack_required == 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - name: Download target-owned Linux provider-pack identities
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact }}
-          path: ${{ runner.temp }}/release-provider-pack
-      - name: Bind daemon and provider-pack inputs for release assembly
+          pattern: ${{ needs.release_runner_binaries.outputs.provider_pack_artifact_prefix }}-*
+          path: ${{ runner.temp }}/release-provider-pack-inputs
+          merge-multiple: true
+      - name: Bind provider-pack inputs for release assembly
+        if: needs.release_runner_source.outputs.required == 'true' && needs.release_runner_binaries.outputs.provider_pack_artifact_prefix != ''
+        run: echo "PAPERCLIP_RELEASE_PROVIDER_PACK_ARTIFACTS_DIR=$RUNNER_TEMP/release-provider-pack-inputs" >> "$GITHUB_ENV"
+      - name: Bind daemon inputs for release assembly
         if: needs.release_runner_source.outputs.required == 'true'
-        env:
-          REQUIRES_PROVIDER_PACK: ${{ needs.release_runner_source.outputs.provider_pack_required }}
-        run: |
-          echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
-          if [[ "$REQUIRES_PROVIDER_PACK" == true ]]; then
-            (cd "$RUNNER_TEMP/release-provider-pack" && sha256sum --check provider-pack.json.sha256)
-            echo "PAPERCLIP_RELEASE_RUNNER_PROVIDER_PACK_MANIFEST=$RUNNER_TEMP/release-provider-pack/provider-pack.json" >> "$GITHUB_ENV"
-          fi
+        run: echo "PAPERCLIP_RELEASE_RUNNER_ARTIFACTS_DIR=$RUNNER_TEMP/release-runner-inputs" >> "$GITHUB_ENV"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
