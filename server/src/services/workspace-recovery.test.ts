@@ -75,7 +75,7 @@ describe("automatic retained workspace recovery", () => {
     await db.insert(issueRecoveryActions).values({ id: actionId, companyId, sourceIssueId: issueId, kind: "active_run_watchdog",
       ownerType: "board", cause: mode === "native" ? "native_continuation_requires_reconciliation" : "legacy_execution_requires_reconciliation",
       fingerprint: runId, nextAction: "Manual repair required", evidence: { runId, workspaceRestoreFailure: "restore_failed", workspaceRestoreRecovery: recovery } });
-    const runtime = { resumeRunLease: vi.fn(async () => ({ providerLeaseId, metadata: { remoteCwd: remote } })),
+    const runtime = { resumeRunLease: vi.fn(async (_input: { lease: EnvironmentLease }) => ({ providerLeaseId, metadata: { remoteCwd: remote } })),
       retryPendingSandboxTeardown: vi.fn(async () => ({ providerLeaseId, state: "stopped" })) };
     const input = { db, companyId, issueId, runId, actionId, environmentRuntime: runtime as never };
     return { ...input, input, runtime, host, remote, lease, providerLeaseId };
@@ -183,8 +183,12 @@ describe("automatic retained workspace recovery", () => {
     expect(readWorkspaceRecovery((await action(f.actionId)).evidence)).toBeNull();
   });
 
-  it.each(["native", "legacy"])("delivers only saved user input once through ordinary admission: %s", async mode => {
-    const f = await seed(mode), commentId = randomUUID(), queueId = randomUUID();
+  it.each(["native", "legacy", "native_export"])("delivers only saved user input once through ordinary admission: %s", async mode => {
+    const f = await seed(mode === "legacy" ? "legacy" : "native"), commentId = randomUUID(), queueId = randomUUID();
+    if (mode === "native_export") {
+      await db.update(issueRecoveryActions).set({ cause: "native_workspace_sync_out_retry_exhausted", evidence: { runId: f.runId } }).where(eq(issueRecoveryActions.id, f.actionId));
+      await db.update(heartbeatRuns).set({ resultJson: {} }).where(eq(heartbeatRuns.id, f.runId));
+    }
     const source = await run(f.runId);
     // Occupy the agent, not this workspace. This keeps the admitted turn queued
     // so this test does not substitute a model mock for recovery evidence.
@@ -340,5 +344,29 @@ describe("automatic retained workspace recovery", () => {
     const plan = await db.execute(sql`explain (analyze, format json) ${retainedWorkspaceCandidates(db)}`);
     expect(JSON.stringify(plan)).toContain("issue_recovery_actions_retained_workspace_recovery_idx");
     expect((await retainedWorkspaceCandidates(db)).length).toBeLessThanOrEqual(5);
+  }, 30_000);
+
+  it.each([false, true])("discovers a committed repair with unscheduled destruction without waiting input (reconciled: %s)", async reconciled => {
+    const f = await seed();
+    await recoverRetainedWorkspace(f.input);
+    if (reconciled) {
+      const current = await action(f.actionId);
+      await db.update(issueRecoveryActions).set({ evidence: { ...current.evidence, executionReconciliation: { runId: f.runId } } }).where(eq(issueRecoveryActions.id, f.actionId));
+    }
+    expect(await db.select().from(agentWakeupRequests).where(eq(agentWakeupRequests.companyId, f.companyId))).toHaveLength(0);
+    expect((await db.select().from(environmentLeases).where(eq(environmentLeases.id, f.lease.id)))[0].status).toBe("released");
+    const restarted = createDb(temporary.connectionString), onRecovered = vi.fn(async (_source: { id: string }) => {});
+    try {
+      await expect.poll(async () => {
+        await reconcileRetainedWorkspaces(restarted, f.input.environmentRuntime, onRecovered);
+        return (await db.select().from(environmentLeases).where(eq(environmentLeases.id, f.lease.id)))[0].status;
+      }, { timeout: 20_000 }).toBe("pending_cleanup");
+      await expect.poll(() => onRecovered.mock.calls.filter(([source]) => source.id === f.runId).length).toBe(1);
+      expect(await retainedWorkspaceCandidates(restarted)).not.toEqual(expect.arrayContaining([expect.objectContaining({ action: expect.objectContaining({ id: f.actionId }) })]));
+      expect(f.runtime.resumeRunLease.mock.calls.filter(([input]) => input.lease.id === f.lease.id)).toHaveLength(1);
+      expect(await readFile(path.join(f.host, "saved.txt"), "utf8")).toBe("finished work\n");
+    } finally {
+      await restarted.$client.end();
+    }
   }, 30_000);
 });

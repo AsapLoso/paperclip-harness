@@ -140,7 +140,12 @@ export async function admitExplicitNativeContinuation(input: {
   if (queuedInterrupt && !isConversationAdapter(agent.adapterType) && !response?.source.requiresFreshSession) return null;
   const actions = await db.select().from(issueRecoveryActions).where(and(
     eq(issueRecoveryActions.companyId, companyId), eq(issueRecoveryActions.sourceIssueId, issueId),
-    executionBlockerPredicate(),
+    or(executionBlockerPredicate(), and(
+      inArray(issueRecoveryActions.cause, ["native_workspace_sync_out_unrecoverable", "native_workspace_sync_out_retry_exhausted"]),
+      sql`${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}' = 'recovered'`,
+      sql`${issueRecoveryActions.evidence}->'executionReconciliation' is null`,
+      sql`${issueRecoveryActions.evidence}->'explicitUserContinuation' is null`,
+    )),
   )).for("update");
   if (!actions.length) return null;
   const blocker = await getExecutionBlocker(db, companyId, issueId);
@@ -206,6 +211,11 @@ export async function admitExplicitNativeContinuation(input: {
     if (!lockedRun || lockedRun.status !== run.status || lockedRun.agentId !== run.agentId ||
         lockedRun.finishedAt?.getTime() !== run.finishedAt.getTime()) return null;
     run = lockedRun;
+    // A repaired export no longer blocks execution. Its machine receipt still
+    // binds the saved user turn; finalized file state alone is insufficient.
+    if (["native_workspace_sync_out_unrecoverable", "native_workspace_sync_out_retry_exhausted"].includes(action.cause)
+      && !await hasVerifiedWorkspaceRepair(db, run)) return blocked("workspace_repair_required",
+      "Paperclip is recovering saved work before continuing. Your message is saved.");
     if ((run.resultJson?.workspaceRestoreFailure === "restore_unsafe_archive" || hasRequiredWorkspaceRecovery(run.resultJson))
       && !await hasVerifiedWorkspaceRepair(db, run)) {
       return blocked("workspace_repair_required", "Paperclip is recovering saved work before continuing. Your message is saved.");

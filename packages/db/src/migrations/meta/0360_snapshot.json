@@ -1,5 +1,5 @@
 {
-  "id": "84ed2d60-b8ad-4fdb-a283-35e55688eb67",
+  "id": "a69ba991-0ea0-4cf4-8dcc-53f547aacaeb",
   "prevId": "3b540468-0848-4a5d-a539-022ec5d0eb94",
   "version": "7",
   "dialect": "postgresql",
@@ -36865,7 +36865,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\n      (\"issue_recovery_actions\".\"evidence\"->'workspaceRestoreRecovery'->>'schema' = 'paperclip.workspace-restore-recovery.v1'\n        or \"issue_recovery_actions\".\"cause\" in ('native_workspace_sync_out_unrecoverable', 'native_workspace_sync_out_retry_exhausted'))\n      and \"issue_recovery_actions\".\"evidence\"->'executionReconciliation' is null\n    ",
+          "where": "\n      (\"issue_recovery_actions\".\"evidence\"->'workspaceRestoreRecovery'->>'schema' = 'paperclip.workspace-restore-recovery.v1'\n        or \"issue_recovery_actions\".\"cause\" in ('native_workspace_sync_out_unrecoverable', 'native_workspace_sync_out_retry_exhausted'))\n      and (\"issue_recovery_actions\".\"evidence\"->'executionReconciliation' is null\n        or \"issue_recovery_actions\".\"evidence\"#>>'{workspaceRecovery,status}' = 'recovered')\n    ",
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -264,14 +264,21 @@ export function retainedWorkspaceCandidates(db: Db, cursor?: string) {
     .where(and(inArray(heartbeatRuns.status, terminal),
       sql`(${issueRecoveryActions.evidence}->'workspaceRestoreRecovery'->>'schema' = 'paperclip.workspace-restore-recovery.v1'
         or ${issueRecoveryActions.cause} in ('native_workspace_sync_out_unrecoverable', 'native_workspace_sync_out_retry_exhausted'))`,
-      sql`${issueRecoveryActions.evidence}->'executionReconciliation' is null`,
+      sql`(${issueRecoveryActions.evidence}->'executionReconciliation' is null
+        or ${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}' = 'recovered')`,
       sql`(coalesce(${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}', '') <> 'blocked' or
         (${issueRecoveryActions.evidence}#>>'{workspaceRecovery,blockerCode}' = 'stop' and exists (
           select 1 from ${environmentLeases} where ${environmentLeases.companyId} = ${heartbeatRuns.companyId}
           and ${environmentLeases.heartbeatRunId} = ${heartbeatRuns.id} and ${environmentLeases.status} = 'released'
           and ${environmentLeases.id}::text = ${heartbeatRuns.runnerProfileJson}#>>'{nativeWorkspaceSync,leaseId}'
           and ${environmentLeases.cleanupStatus} = 'success' and ${environmentLeases.metadata}->'remoteExecutionTermination'->>'state' = 'stopped')))`,
-      sql`(${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}' is distinct from 'recovered' or exists (
+      sql`(${issueRecoveryActions.evidence}#>>'{workspaceRecovery,status}' is distinct from 'recovered' or
+        (${heartbeatRuns.runnerProfileJson}#>>'{nativeWorkspaceSync,resourceDisposition}' = 'destroy' and exists (
+          select 1 from ${environmentLeases} where ${environmentLeases.companyId} = ${heartbeatRuns.companyId}
+          and ${environmentLeases.heartbeatRunId} = ${heartbeatRuns.id}
+          and ${environmentLeases.id}::text = ${heartbeatRuns.runnerProfileJson}#>>'{nativeWorkspaceSync,leaseId}'
+          and ${environmentLeases.status} = 'released' and ${environmentLeases.cleanupStatus} = 'success'
+          and ${environmentLeases.metadata}->'workspaceRecoveryCleanup' is null)) or exists (
         select 1 from ${agentWakeupRequests} where ${agentWakeupRequests.companyId} = ${issueRecoveryActions.companyId}
         and ${agentWakeupRequests.status} = 'deferred_issue_execution' and ${agentWakeupRequests.requestedByActorType} = 'user'
         and ${agentWakeupRequests.payload}->>'issueId' = ${issueRecoveryActions.sourceIssueId}::text))`,
@@ -280,7 +287,7 @@ export function retainedWorkspaceCandidates(db: Db, cursor?: string) {
 }
 
 /** Bounded discovery shares the periodic recovery lifecycle. A repaired source
- * is reconsidered for saved USER input only, including after a lost callback. */
+ * still owes cleanup even without saved input or after task reconciliation. */
 export async function reconcileRetainedWorkspaces(db: Db, runtime: EnvironmentRuntimeService,
   onRecovered: (run: typeof heartbeatRuns.$inferSelect) => Promise<void>) {
   let pending = workInFlight.get(db);

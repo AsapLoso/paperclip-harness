@@ -7751,7 +7751,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           {resolvedDetailTab === "chat" && issue.executionBlocker && (
             <ExecutionBlockerNotice className={shellSectionClass} companyId={issue.companyId} issueId={issue.id}
               issueStatus={issue.status} canManage={canManageBoardRuntime && canResolveBoardRecoveryAction}
-              canRecover={canManageTreeControl}
+              canRecover={canResolveBoardRecoveryAction}
               blocker={issue.executionBlocker} onRetried={invalidateIssueDetail} />
           )}
 
