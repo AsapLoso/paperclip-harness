@@ -95,9 +95,9 @@ describe("Copilot Product protection integration", () => {
     utimesSync(root, new Date(0), new Date(0));
     const watcher = watchDeniedTarget(root, "denied"), targetPath = join(root, "denied");
     try {
-      writeFileSync(fixture.targetPath, "x"); unlinkSync(fixture.targetPath);
-      utimesSync(fixture.directory, 0, 0);
-      const receipt = fixture.watcher.finish();
+      writeFileSync(targetPath, "x"); unlinkSync(targetPath);
+      utimesSync(root, 0, 0);
+      const receipt = watcher.finish();
       expect(receipt).toMatchObject({ complete: false, targetMutationCount: 0 });
       expect(receipt.reasons).toContain("coverage-gap-parent-version-changed");
       expect(receipt.finalParent).not.toEqual(receipt.initialParent);
