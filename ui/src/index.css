@@ -141,6 +141,10 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --focus-ring-stroke-width: 1px;
+  --focus-ring-halo-width: 3px;
+  --focus-ring-halo: color-mix(in srgb, var(--ring) 20%, transparent);
+  --focus-ring-shadow: 0 0 0 var(--focus-ring-halo-width) var(--focus-ring-halo);
   --scrollbar-thumb: oklch(0.7 0 0);
   --scrollbar-thumb-hover: oklch(0.6 0 0);
   --scrollbar-size: 8px;
@@ -3921,10 +3925,6 @@ html.dark:has(.design-proposal-theme) {
   /* Focus follows foreground independently of neutral pane-divider interactions. */
   --ring: var(--foreground);
   --sidebar-ring: var(--ring);
-  --focus-ring-stroke-width: 1px;
-  --focus-ring-halo-width: 3px;
-  --focus-ring-halo: color-mix(in srgb, var(--ring) 20%, transparent);
-  --focus-ring-shadow: 0 0 0 var(--focus-ring-halo-width) var(--focus-ring-halo);
   --pane-resize-highlight: oklch(0.556 0 0);
   --task-row-surface-hover: var(--muted);
   background: var(--background);
@@ -3937,10 +3937,6 @@ html:not(.dark):has(.design-proposal-theme) {
   --design-sidebar-item-foreground: color-mix(in oklab, var(--foreground) 80%, transparent);
   --design-sidebar-item-highlight: var(--sidebar-accent);
   --design-sidebar-item-active-foreground: var(--sidebar-accent-foreground);
-  --focus-ring-stroke-width: 1px;
-  --focus-ring-halo-width: 3px;
-  --focus-ring-halo: color-mix(in srgb, var(--ring) 20%, transparent);
-  --focus-ring-shadow: 0 0 0 var(--focus-ring-halo-width) var(--focus-ring-halo);
 }
 .design-proposal-theme { color: var(--muted-foreground); }
 html.dark:has(.design-proposal-theme) .pane-resize-handle { --ring: var(--pane-resize-highlight); }

@@ -676,7 +676,7 @@ test("truncated titles scroll once, hold their end, and reset immediately; row a
   await expect(link).toBeFocused();
   await expect(title).toHaveAttribute("data-revealing", "true");
   await expect(link).toHaveCSS("outline-style", "solid");
-  await expect(link).toHaveCSS("outline-width", "2px");
+  await expect(link).toHaveCSS("outline-width", "1px");
   await page.keyboard.press("Escape");
   await expect(title).not.toHaveAttribute("data-revealing");
 
