@@ -186,6 +186,18 @@ describeEmbeddedPostgres("native harness backup expiration", () => {
     expect(await taskSessionCount(session.agentId)).toBe(1);
   });
 
+  it("keeps the backup when the session's control-plane state is too large to read", async () => {
+    const session = await seedSession();
+    const statePath = path.join(session.root, "control-plane", "control-plane-state.json");
+    await fs.writeFile(statePath, `${await fs.readFile(statePath, "utf8")}${" ".repeat(5 * 1024 * 1024)}`);
+
+    const result = await service().tick();
+
+    expect(result.skipped.identity_unknown).toBe(1);
+    expect(await exists(session.current)).toBe(true);
+    expect(await taskSessionCount(session.agentId)).toBe(1);
+  });
+
   it("keeps the backup of a session that is executing in this process", async () => {
     const session = await seedSession();
     const result = await nativeHarnessBackupExpirationService(db, {

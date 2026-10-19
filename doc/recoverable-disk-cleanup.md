@@ -66,6 +66,9 @@ batch, starting two minutes after readiness. A copy expires when all of these ho
 - the session is not executing, initializing, warm, or closing in this process, and
   no cleanup activation is pending in its directory.
 
+A session whose control-plane state is missing, unreadable, or larger than 4 MB
+keeps its copy, because the sweep cannot identify its runs.
+
 The sweep checks and locks these rows in one transaction, and removes the agent task
 session that points at the session there. A reopened issue therefore starts a fresh
 native session instead of resuming the expired one. The copy is atomically renamed to

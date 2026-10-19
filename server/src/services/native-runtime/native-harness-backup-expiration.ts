@@ -27,6 +27,7 @@ const LIVE_RUN_STATUSES = ["queued", "scheduled_retry", "running"];
 const SETTLED_FINALIZATION_PHASES = ["committed", "terminal_failure"];
 const LIVE_LEASE_STATUSES = ["active", "released", "retained", "pending_cleanup"];
 const CLOSED_ISSUE_STATUSES = ["done", "cancelled"];
+const MAX_CONTROL_PLANE_STATE_BYTES = 4 * 1024 * 1024;
 
 export type NativeHarnessBackupExpirationOptions = {
   closedForDays?: number;
@@ -101,9 +102,10 @@ async function allocatedBytes(target: string): Promise<number> {
 
 async function readSessionIdentity(root: string): Promise<SessionIdentity | null> {
   try {
-    const state = JSON.parse(
-      await fs.readFile(path.join(root, "control-plane", "control-plane-state.json"), "utf8"),
-    ) as { identity?: Record<string, unknown> };
+    const statePath = path.join(root, "control-plane", "control-plane-state.json");
+    const stat = await fs.lstat(statePath);
+    if (!stat.isFile() || stat.size > MAX_CONTROL_PLANE_STATE_BYTES) return null;
+    const state = JSON.parse(await fs.readFile(statePath, "utf8")) as { identity?: Record<string, unknown> };
     const identity = state.identity ?? {};
     const runId = identity.runId;
     const normalizedSessionId = identity.normalizedSessionId;
