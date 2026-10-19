@@ -39,7 +39,7 @@ export const buttonSizes = {
 } satisfies Record<ButtonSize, string>;
 export const buttonStates = { default: "Default", hover: "Hover", "focus-visible": "Keyboard focus", active: "Pressed", disabled: "Disabled", loading: "Loading" } as const;
 export const buttonSurfaces = { background: "Main pane / menu", muted: "Left sidebar / raised card", "muted-alt": "Middle card", "background-alt": "Input surface" } as const;
-const surfaceClasses = { background: "bg-background", muted: "bg-muted", "muted-alt": "bg-muted-alt", "background-alt": "bg-background-alt" };
+const surfaceClasses = { background: "bg-background", muted: "bg-muted", "muted-alt": "bg-(--muted-alt)", "background-alt": "bg-(--background-alt)" };
 export type ButtonPlaygroundSettings = {
   label: string;
   variant: ButtonVariant;

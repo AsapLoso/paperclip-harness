@@ -346,7 +346,8 @@ test("organization, account, Views and Columns share the refreshed flyout appear
   const scenarios = [
     { trigger: "Open Paperclip Storybook organization switcher", role: "menu", name: /organization switcher/, option: /Research Bureau/, optionRole: "menuitem", screenshot: "flyout-organizations" },
     { trigger: "Open account menu", role: "dialog", name: "Account", option: "Settings", optionRole: "link", screenshot: "flyout-account" },
-    { trigger: "Task view: All tasks", role: "menu", name: "Task view: All tasks", option: "Unread", optionRole: "menuitemradio", screenshot: "flyout-views" },
+    // Radix names this menu from its trigger, so the accessible name changes with the selected view.
+    { trigger: "Task view: All tasks", role: "menu", name: undefined, option: "Unread", optionRole: "menuitemradio", screenshot: "flyout-views" },
     { trigger: "Columns", role: "menu", name: "Columns", option: "Created by", optionRole: "menuitemcheckbox", screenshot: "flyout-columns" },
   ] as const;
   let sharedShadow: string | undefined;
@@ -370,7 +371,7 @@ test("organization, account, Views and Columns share the refreshed flyout appear
     await option.hover();
     await expect(option).toHaveCSS("background-color", "rgb(51, 51, 51)");
     await expect(option).toHaveCSS("color", await menu.locator("[data-flyout-header]").evaluate(element => getComputedStyle(element).color));
-    if (scenario.name === "Task view: All tasks") {
+    if (scenario.trigger === "Task view: All tasks") {
       const selected = menu.getByRole("menuitemradio", { name: "All tasks", exact: true });
       await expect(selected).toBeChecked();
       await expect(selected.locator("svg.lucide-check")).toBeVisible();
