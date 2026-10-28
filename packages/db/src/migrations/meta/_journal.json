@@ -2808,6 +2808,13 @@
       "when": 1793223470886,
       "tag": "0402_ancient_malice",
       "breakpoints": true
+    },
+    {
+      "idx": 403,
+      "version": "7",
+      "when": 1793224779622,
+      "tag": "0403_natural_cerise",
+      "breakpoints": true
     }
   ]
 }

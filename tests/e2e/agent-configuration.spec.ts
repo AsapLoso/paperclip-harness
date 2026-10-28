@@ -45,10 +45,15 @@ const editor = (page: Page) => page.getByRole("textbox", { name: "Agent YAML con
 async function document(page: Page): Promise<AgentConfigurationDocument> {
   await expect(editor(page)).toBeVisible();
   await expect(editor(page)).toHaveAttribute("contenteditable", "true");
-  await editor(page).press("ControlOrMeta+a");
-  await editor(page).press("ControlOrMeta+c");
-  const source = await page.evaluate(() => navigator.clipboard.readText());
-  expect(source).toContain("apiVersion: paperclip/v1");
+  let source = "";
+  await expect.poll(async () => {
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await editor(page).click();
+    await editor(page).press("ControlOrMeta+a");
+    await editor(page).press("ControlOrMeta+c");
+    source = await page.evaluate(() => navigator.clipboard.readText());
+    return /^apiVersion: paperclip\/v1(?:\r?\n|$)/.test(source);
+  }).toBe(true);
   return parse(source);
 }
 async function edit(page: Page, change: (value: AgentConfigurationDocument) => void) {

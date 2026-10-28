@@ -554,6 +554,7 @@ const MIGRATIONS_WITH_TOP_LEVEL_STATEMENTS = new Set([
   "0400_absent_phantom_reporter.sql",
   "0401_yummy_ultimates.sql",
   "0402_ancient_malice.sql",
+  "0403_natural_cerise.sql",
 
 
   "0384_funny_adam_warlock.sql",
