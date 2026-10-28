@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Configure Git Author
         run: |
@@ -55,13 +55,18 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
+      - name: Install Isolated Build Dependencies
+        if: steps.merge_upstream.outputs.merge_status == 'success'
+        run: |
+          pnpm install --no-frozen-lockfile --filter '@paperclip/harness-guarded-adapter...' --filter '@paperclip/plugin-llm-wiki-fork...'
+
       - name: Verify Isolated Builds
         if: steps.merge_upstream.outputs.merge_status == 'success'
         run: |
           echo "Testing build for @paperclip/harness-guarded-adapter..."
-          pnpm --filter @paperclip/harness-guarded-adapter build || echo "Adapter build pass"
+          pnpm --filter '@paperclip/harness-guarded-adapter...' build
           echo "Testing build for @paperclip/plugin-llm-wiki-fork..."
-          pnpm --filter @paperclip/plugin-llm-wiki-fork build || echo "Plugin build pass"
+          pnpm --filter '@paperclip/plugin-llm-wiki-fork...' build
 
       - name: Push Synced Commits to Origin
         if: steps.merge_upstream.outputs.merge_status == 'success'
@@ -76,4 +81,5 @@ jobs:
             echo "## Daily upstream sync failed"
             echo
             echo "Inspect the failed step and logs in this workflow run. Sync source: paperclipai/paperclip:master."
+            echo "If GitHub rejects a workflow-file push, configure the UPSTREAM_SYNC_TOKEN secret with Contents: write and Workflows: write."
           } >> "$GITHUB_STEP_SUMMARY"
