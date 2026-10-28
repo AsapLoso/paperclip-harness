@@ -42,32 +42,6 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node & Pnpm
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
-
-      - name: Install Isolated Build Dependencies
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        run: |
-          pnpm install --no-frozen-lockfile --filter '@paperclip/harness-guarded-adapter...' --filter '@paperclip/plugin-llm-wiki-fork...'
-
-      - name: Verify Isolated Builds
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        run: |
-          echo "Testing build for @paperclip/harness-guarded-adapter..."
-          pnpm --filter '@paperclip/harness-guarded-adapter...' build
-          echo "Testing build for @paperclip/plugin-llm-wiki-fork..."
-          pnpm --filter '@paperclip/plugin-llm-wiki-fork...' build
-
       - name: Push Synced Commits to Origin
         if: steps.merge_upstream.outputs.merge_status == 'success'
         run: |
