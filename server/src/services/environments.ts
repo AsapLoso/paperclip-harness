@@ -1,3 +1,4 @@
+import { notifyRetainedNativeSessionCleanup } from "./retained-native-session-cleanup-notifications.js";
 import { notifyChatInboundWakeNotices } from "./chat-inbound-wake-notice-notifications.js";
 import { writeEnvironmentCleanup, notifyEnvironmentCleanup } from "./environment-cleanup-notifications.js";
 import { withoutCleanupVerification } from "./cleanup-verification-proof.js";
@@ -15,6 +16,7 @@ import {
   environmentLeases,
   environments,
   executionWorkspaces,
+  heartbeatRuns,
   instanceSettings,
   issues,
   projects,
@@ -1690,6 +1692,12 @@ export function environmentService(db: Db) {
             companyId: previous.companyId, issueId: previous.issueId ?? undefined,
           });
         }
+        if (previous.heartbeatRunId && ["active", "pending_cleanup"].includes(previous.status)
+            && status !== "pending_cleanup") {
+          await notifyRetainedNativeSessionCleanup(tx, {
+            companyId: previous.companyId, runId: previous.heartbeatRunId,
+          });
+        }
         return tx.update(environmentLeases)
         .set({
           status,
@@ -1810,8 +1818,11 @@ export function environmentService(db: Db) {
       status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
     ): Promise<EnvironmentLease[]> => {
       const now = new Date();
-      const rows = await writeEnvironmentCleanup(db, tx => tx
-        .update(environmentLeases)
+      const rows = await writeEnvironmentCleanup(db, async tx => {
+        const [run] = await tx.select({ companyId: heartbeatRuns.companyId }).from(heartbeatRuns)
+          .where(eq(heartbeatRuns.id, heartbeatRunId)).limit(1);
+        if (run) await notifyRetainedNativeSessionCleanup(tx, { companyId: run.companyId, runId: heartbeatRunId });
+        return tx.update(environmentLeases)
         .set({
           status,
           releasedAt: now,
@@ -1824,7 +1835,8 @@ export function environmentService(db: Db) {
             eq(environmentLeases.status, "active"),
           ),
         )
-        .returning());
+        .returning();
+      });
       return rows.map(toEnvironmentLease);
     },
   };

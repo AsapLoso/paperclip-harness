@@ -140,6 +140,7 @@ import { sidebarBadgeRoutes } from "./routes/sidebar-badges.js";
 import { sidebarPreferenceRoutes } from "./routes/sidebar-preferences.js";
 import { announcementRoutes } from "./routes/announcements.js";
 import { serverVersion } from "./version.js";
+import { workspacePreferenceRoutes } from "./routes/workspace-preferences.js";
 import { primaryAgentRoutes } from "./routes/primary-agent.js";
 import { resourceMembershipRoutes } from "./routes/resource-memberships.js";
 import { inboxDismissalRoutes } from "./routes/inbox-dismissals.js";
@@ -200,7 +201,6 @@ import { nativeChatProgressWork } from "./services/chat-native-progress-work.js"
 import { chatInboundWakeNoticeWork } from "./services/chat-inbound-wake-notice-work.js";
 import { chatFailedRetryNoticeWork } from "./services/chat-failed-retry-notice-work.js";
 import { chatRunMilestoneWork } from "./services/chat-run-milestone-work.js";
-import { createCoalescedAsyncTrigger } from "./services/chat-publication-reconciliation.js";
 import { heartbeatService } from "./services/heartbeat.js";
 import { pluginLifecycleManager } from "./services/plugin-lifecycle.js";
 import { registerPluginLifecycleDelivery } from "./services/plugin-lifecycle-delivery.js";
@@ -228,7 +228,6 @@ import { createChatWebhookDiagnostics } from "./services/chat-webhook-diagnostic
 
 type UiMode = "none" | "static" | "vite-dev";
 const FEEDBACK_EXPORT_FLUSH_INTERVAL_MS = 5_000;
-const CHAT_PUBLICATION_FLUSH_INTERVAL_MS = 1_000;
 const VITE_DEV_ASSET_PREFIXES = [
   "/@fs/",
   "/@id/",
@@ -318,76 +317,6 @@ export function shouldEnablePrivateHostnameGuard(opts: {
     (opts.deploymentMode === "local_trusted" ||
       opts.deploymentMode === "authenticated")
   );
-}
-
-type ChatReconciliationLane =
-  | "deliveries"
-  | "GitHub webhook recovery"
-  | "publications"
-  | "Slack file receipts"
-  | "Slack session status";
-
-/**
- * Provider recovery can wait on slow external I/O. Keep each existing durable
- * lane single-flight without making an optional provider effect suppress the
- * next publication sweep for every endpoint.
- */
-export function createChatReconciliationCoordinator(input: {
-  processPendingDeliveries: () => Promise<unknown>;
-  processFailedGitHubWebhookDeliveries?: () => Promise<unknown>;
-  flushPublications: () => Promise<unknown>;
-  processPendingSlackFileUploadReceipts?: () => Promise<unknown>;
-  processPendingSlackSessionSyncs?: () => Promise<unknown>;
-  onError: (lane: ChatReconciliationLane, error: unknown) => void;
-}) {
-  let stopped = false;
-  const inFlight = new Map<ChatReconciliationLane, Promise<void>>();
-  const publicationReconciliation = createCoalescedAsyncTrigger({
-    run: input.flushPublications,
-    onError: (error) => input.onError("publications", error),
-  });
-  const start = (
-    lane: ChatReconciliationLane,
-    task: () => Promise<unknown>,
-  ) => {
-    if (stopped || inFlight.has(lane)) return;
-    const pending = Promise.resolve()
-      .then(task)
-      .then(() => undefined)
-      .catch((error) => input.onError(lane, error))
-      .finally(() => {
-        if (inFlight.get(lane) === pending) inFlight.delete(lane);
-      });
-    inFlight.set(lane, pending);
-  };
-  return {
-    reconcile() {
-      if (stopped) return;
-      start("deliveries", input.processPendingDeliveries);
-      if (input.processFailedGitHubWebhookDeliveries) {
-        start(
-          "GitHub webhook recovery",
-          input.processFailedGitHubWebhookDeliveries,
-        );
-      }
-      publicationReconciliation.poll();
-      if (input.processPendingSlackFileUploadReceipts) start("Slack file receipts", input.processPendingSlackFileUploadReceipts);
-      if (input.processPendingSlackSessionSyncs) start("Slack session status", input.processPendingSlackSessionSyncs);
-    },
-    notifyPublications() {
-      publicationReconciliation.notify();
-    },
-    stop() {
-      stopped = true;
-      publicationReconciliation.stop();
-    },
-    async drain() {
-      await Promise.allSettled([
-        ...inFlight.values(),
-      ]);
-      await publicationReconciliation.drain();
-    },
-  };
 }
 
 export function createManagedBundledPluginWorkerRecovery(input: {
@@ -885,6 +814,7 @@ export async function createApp(
   api.use(announcementRoutes(db, { ...opts.announcements, version: opts.hostVersion ?? serverVersion }));
   api.use(resourceMembershipRoutes(db));
   api.use(primaryAgentRoutes(db));
+  api.use(workspacePreferenceRoutes(db));
   api.use(inboxDismissalRoutes(db));
   api.use(instanceSettingsRoutes(db, workerManager, opts.prepareIdleDatabaseBackup));
   if (opts.databaseBackupService) {
@@ -1299,25 +1229,7 @@ export async function createApp(
     deliveryWork, () => !isWarmStandby() && !isIdleTaskDrainActive(),
   );
   emailChannels.start();
-  const chatReconciliation = createChatReconciliationCoordinator({
-    // Chat delivery, action, and Telegram discovery workers now own these
-    // duties. Keep the coordinator's other maintenance lanes independent.
-    processPendingDeliveries: async () => undefined,
-    processFailedGitHubWebhookDeliveries: () =>
-      chatChannels.processFailedGitHubWebhookDeliveries(),
-    flushPublications: async () => undefined,
-    onError: (lane, err) => {
-      logger.error({ err, lane }, `Failed to reconcile chat ${lane}`);
-    },
-  });
-  let chatPublicationTimer: ReturnType<typeof setInterval> | null = setInterval(
-    () => {
-      if (!isWarmStandby() && !isIdleTaskDrainActive()) chatReconciliation.reconcile();
-    },
-    CHAT_PUBLICATION_FLUSH_INTERVAL_MS,
-  );
-  chatPublicationTimer.unref?.();
-  if (!isWarmStandby() && !isIdleTaskDrainActive()) chatReconciliation.reconcile();
+  chatChannels.registerGitHubWebhookRecoveryWork(deliveryWork, () => !isWarmStandby() && !isIdleTaskDrainActive());
   // Abandoned chunked-import spool sweep: hourly (plus once at startup),
   // deleting spool dirs whose transfer saw no activity for 24h and cancelling
   // their still-open ledger runs. Same setInterval + unref + shutdown-clear
@@ -1444,12 +1356,6 @@ export async function createApp(
       jobCoordinator.stop();
       resourceLifecycleDelivery.dispose();
       await deliveryWork.stop();
-      chatReconciliation.stop();
-      if (chatPublicationTimer) {
-        clearInterval(chatPublicationTimer);
-        chatPublicationTimer = null;
-      }
-      await chatReconciliation.drain();
       if (importTransferSweepTimer) {
         clearInterval(importTransferSweepTimer);
         importTransferSweepTimer = null;

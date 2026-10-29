@@ -1,3 +1,4 @@
+import { notifyRetainedNativeSessionCleanup } from "../retained-native-session-cleanup-notifications.js";
 import { writeEnvironmentCleanup } from "../environment-cleanup-notifications.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
@@ -107,20 +108,23 @@ export async function settleNativeWorkspaceExportResume(db: Db, lease: Lease, op
   const receipt = remoteTerminationReceipt(lease, options.receipt);
   const stopped = receipt?.state === "stopped";
   const now = new Date();
-  const [row] = await writeEnvironmentCleanup(db, tx => tx.update(environmentLeases).set({
-    status: stopped ? options.status ?? "released" : "pending_cleanup", cleanupStatus: stopped ? "success" : "failed",
-    releasedAt: now, lastUsedAt: now, updatedAt: now,
-    metadata: sql`(${environmentLeases.metadata} - 'remoteExecutionTermination'
-      ${stopped ? sql`- 'nativeWorkspaceExportResume'` : sql``}) || ${JSON.stringify({
-        ...(stopped ? { remoteExecutionTermination: receipt } : {}),
-        pendingCleanupInFlight: false, pendingCleanupLeaseExpiresAtMs: 0,
-      })}::jsonb`,
-  }).where(and(eq(environmentLeases.id, lease.id), eq(environmentLeases.companyId, lease.companyId),
-    eq(environmentLeases.heartbeatRunId, lease.heartbeatRunId!), eq(environmentLeases.provider, lease.provider!),
-    eq(environmentLeases.providerLeaseId, lease.providerLeaseId!), eq(environmentLeases.status, "pending_cleanup"),
-    sql`${environmentLeases.metadata}->>'pendingCleanupAttemptId' = ${options.attemptId}`,
-    sql`${environmentLeases.metadata}->'nativeWorkspaceExportResume'->>'requestId' = ${marker.requestId}`,
-    sql`${environmentLeases.metadata}->>'pluginId' = ${marker.pluginId}`,
-  )).returning());
+  const [row] = await writeEnvironmentCleanup(db, async tx => {
+    if (stopped) await notifyRetainedNativeSessionCleanup(tx, { companyId: lease.companyId, runId: lease.heartbeatRunId! });
+    return tx.update(environmentLeases).set({
+      status: stopped ? options.status ?? "released" : "pending_cleanup", cleanupStatus: stopped ? "success" : "failed",
+      releasedAt: now, lastUsedAt: now, updatedAt: now,
+      metadata: sql`(${environmentLeases.metadata} - 'remoteExecutionTermination'
+        ${stopped ? sql`- 'nativeWorkspaceExportResume'` : sql``}) || ${JSON.stringify({
+          ...(stopped ? { remoteExecutionTermination: receipt } : {}),
+          pendingCleanupInFlight: false, pendingCleanupLeaseExpiresAtMs: 0,
+        })}::jsonb`,
+    }).where(and(eq(environmentLeases.id, lease.id), eq(environmentLeases.companyId, lease.companyId),
+      eq(environmentLeases.heartbeatRunId, lease.heartbeatRunId!), eq(environmentLeases.provider, lease.provider!),
+      eq(environmentLeases.providerLeaseId, lease.providerLeaseId!), eq(environmentLeases.status, "pending_cleanup"),
+      sql`${environmentLeases.metadata}->>'pendingCleanupAttemptId' = ${options.attemptId}`,
+      sql`${environmentLeases.metadata}->'nativeWorkspaceExportResume'->>'requestId' = ${marker.requestId}`,
+      sql`${environmentLeases.metadata}->>'pluginId' = ${marker.pluginId}`,
+    )).returning();
+  });
   return row ?? null;
 }
