@@ -47,12 +47,12 @@ async function main(): Promise<void> {
     const persistedNativeRun =
       persistedActiveNativeRun || persistedRetryableFailedNativeRun;
 
+    const localRunnerSupported = localPaperclipRunnerSupported();
     console.log(
       JSON.stringify({
-        nativeRunnerRequired: localPaperclipRunnerSupported()
-          || experimental.enableNativeRunner === true
-          || experimental.enableOpenAiDot === true
-          || persistedNativeRun,
+        // The dev binary executes on this host. Feature flags and retained runs
+        // cannot make a native binary buildable on an unsupported platform.
+        nativeRunnerRequired: localRunnerSupported,
         rolloutEnabled: experimental.enableNativeRunner === true,
         dotRolloutEnabled: experimental.enableOpenAiDot === true,
         persistedNativeRun,
