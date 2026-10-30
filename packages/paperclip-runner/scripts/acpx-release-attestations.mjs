@@ -53,8 +53,14 @@ export async function acpxReleaseAttestation(agent, packageRoot) {
   switch (attestation.kind) {
     case "installed-command":
       return null;
-    case "launcher":
-      return { commandDigest: `sha256:${sha256(readFileSync(resolve(packageRoot, attestation.path)))}` };
+    case "launcher": {
+      // Git may check the same text launcher out with CRLF on Windows and LF on
+      // Linux. Normalize line endings so a checkout setting cannot change the
+      // upstream release identity.
+      const launcher = readFileSync(resolve(packageRoot, attestation.path), "utf8")
+        .replace(/\r\n?/g, "\n");
+      return { commandDigest: `sha256:${sha256(launcher)}` };
+    }
     case "declaration": {
       const { [attestation.digestField]: _digest, ...declaration } = JSON.parse(readFileSync(resolve(packageRoot, attestation.path), "utf8"));
       return { commandDigest: `sha256:${sha256(canonicalJson(declaration))}`, declaration };
