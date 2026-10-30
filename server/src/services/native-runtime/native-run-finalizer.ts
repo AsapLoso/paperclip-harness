@@ -1,3 +1,5 @@
+import { notifyNativeEnvironmentSettlement } from "../native-environment-settlement-notifications.js";
+import { notifyExternalAgentSettlement } from "../../modules/external-agents/index.js";
 import { notifyNativeRecoveryNotices } from "../native-recovery-notice-notifications.js";
 import { resolveCommittedNativeRecoveryNotices } from "./native-recovery-notices.js";
 import { notifyNativeRunProjection } from "../native-run-projection-notifications.js";
@@ -1088,6 +1090,8 @@ export async function finalizeNativeRun(input: {
   skipNativeResponsePresentation?: boolean;
   skipNativeReviewResponse?: boolean;
   skipCommittedRunProjection?: boolean;
+  skipExternalConversationSettlement?: boolean;
+  skipExternalAgentSettlement?: boolean;
   skipNativeRecoveryNotices?: boolean;
   /** Workspace-only replay must not consume the provider recovery budget. */
   preserveProviderAttempt?: boolean;
@@ -1149,13 +1153,13 @@ export async function finalizeNativeRun(input: {
         issueId: coordinator.issueId,
         runId: admittedRun.id,
       });
-    if (input.projectRunStatus) {
+    if (input.projectRunStatus && !input.skipExternalConversationSettlement) {
       await settleExternalConversation(input.db, admittedRun.companyId, coordinator.issueId).catch((err) => {
         logger.warn({ err, runId: admittedRun.id }, "Slack conversation settlement deferred to reconciliation");
       });
     }
     if (!input.skipNativeRecoveryNotices) await resolveCommittedNativeRecoveryNotices(input.db, { companyId: admittedRun.companyId, runId: admittedRun.id, issueId: coordinator.issueId });
-    if (input.projectRunStatus) {
+    if (input.projectRunStatus && !input.skipExternalAgentSettlement) {
       const [projectedRun] = await input.db.select({
         id: heartbeatRuns.id, companyId: heartbeatRuns.companyId, agentId: heartbeatRuns.agentId,
         runtimeMode: heartbeatRuns.runtimeMode, status: heartbeatRuns.status,
@@ -1634,8 +1638,10 @@ export async function finalizeNativeRun(input: {
           .from(heartbeatRuns).where(and(eq(heartbeatRuns.id, run.id), eq(heartbeatRuns.companyId, run.companyId)))
           .for("update").limit(1);
         if (!before) return null;
+        if (input.projectRunStatus) await notifyExternalAgentSettlement(tx, { companyId: run.companyId, runId: run.id });
         await notifyNativeRecoveryNotices(tx, { companyId: run.companyId, runId: run.id });
         await notifyNativeRunProjection(tx, { companyId: run.companyId, runId: run.id });
+        await notifyNativeEnvironmentSettlement(tx, { companyId: run.companyId, runId: run.id });
         await notifyRetainedNativeSessionCleanup(tx, { companyId: run.companyId, runId: run.id });
         if (input.projectRunStatus) await notifyInstructionCollection(tx, { companyId: run.companyId, runId: run.id });
         if (input.projectRunStatus) await notifyCancelledWorkspacePreservation(tx, { companyId: run.companyId, runId: run.id });
@@ -1666,13 +1672,13 @@ export async function finalizeNativeRun(input: {
           issueId: coordinator.issueId,
           runId: run.id,
         });
-      if (input.projectRunStatus && finalizationPhase === "committed") {
+      if (input.projectRunStatus && finalizationPhase === "committed" && !input.skipExternalConversationSettlement) {
         await settleExternalConversation(input.db, run.companyId, coordinator.issueId).catch((err) => {
           logger.warn({ err, runId: run.id }, "Slack conversation settlement deferred to reconciliation");
         });
       }
       if (finalizationPhase === "committed" && !input.skipNativeRecoveryNotices) await resolveCommittedNativeRecoveryNotices(input.db, { companyId: run.companyId, runId: run.id, issueId: coordinator.issueId });
-      if (input.projectRunStatus && updatedRun) await reconcileMuseNativeTerminalRun(input.db, updatedRun);
+      if (input.projectRunStatus && updatedRun && !input.skipExternalAgentSettlement) await reconcileMuseNativeTerminalRun(input.db, updatedRun);
       return {
         ...coordinator,
         phase: finalizationPhase,

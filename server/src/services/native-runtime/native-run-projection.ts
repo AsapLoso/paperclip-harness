@@ -1,3 +1,5 @@
+import { notifyNativeEnvironmentSettlement } from "../native-environment-settlement-notifications.js";
+import { notifyExternalAgentSettlement } from "../../modules/external-agents/index.js";
 import { notifyNativeRecoveryNotices } from "../native-recovery-notice-notifications.js";
 import { pendingNativeStatusEffectsCondition } from "./native-pending-effect-work.js";
 import { notifyNativeRunProjection } from "../native-run-projection-notifications.js";
@@ -127,8 +129,10 @@ export async function projectCommittedRun(input: {
       nativePhase: heartbeatRuns.nativePhase, finishedAt: heartbeatRuns.finishedAt })
       .from(heartbeatRuns).where(needsRepair).for("update").limit(1);
     if (!before) return null;
+    await notifyExternalAgentSettlement(tx, { companyId: input.run.companyId, runId: input.run.id });
     await notifyNativeRecoveryNotices(tx, { companyId: input.run.companyId, runId: input.run.id });
     await notifyNativeRunProjection(tx, { companyId: input.run.companyId, runId: input.run.id });
+    await notifyNativeEnvironmentSettlement(tx, { companyId: input.run.companyId, runId: input.run.id });
     await notifyRetainedNativeSessionCleanup(tx, { companyId: input.run.companyId, runId: input.run.id });
     await notifyInstructionCollection(tx, { companyId: input.run.companyId, runId: input.run.id });
     await notifyCancelledWorkspacePreservation(tx, { companyId: input.run.companyId, runId: input.run.id });

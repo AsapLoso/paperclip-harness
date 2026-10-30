@@ -134,8 +134,15 @@ choice stays selected while task data refreshes.
 
 ### Task collection creation filters
 
+The task Filters menu also offers **Routine tasks**. It selects tasks with
+`originKind=routine_execution`, including manually triggered routine runs, even
+when other automatic tasks are hidden. The routines list's **View all tasks**
+link opens `/issues?view=all&originKind=routine_execution` with that checkbox
+selected. The URL retains the selection across reloads and task navigation.
+Search and pagination apply the routine origin filter on the server.
+
 Tasks and project lists hide agent-created and system-created tasks by default.
-The Filters menu's **show agent-created tasks** checkbox includes routine runs,
+The Filters menu's **Show agent-created tasks** checkbox includes routine runs,
 recovery/watchdog tasks, chat-channel tasks, and other automation. Channel tasks
 remain bot-created for this filter even when a human starts the conversation. The choice is saved per company
 and collection; Clear filters restores the hidden default. Nested lists preserve
@@ -198,6 +205,12 @@ Missing references are advisory: a valid selected skill can still be imported.
 Unavailable files are listed, and existing installed dependencies are retained
 when a bounded refresh cannot preserve them. File limits and content validation
 still apply; importing never executes repository code.
+Authored and unproven legacy versions retain an independent recovery copy. Unused Git
+packages with an exact restore recipe may expire; later use requires access to that
+original repository and commit.
+External package storage keeps repository contents out of the control-plane database;
+per-turn checks reuse verified local files while rechecking current skill access.
+See [automatic storage and recovery](skill-package-storage.md).
 
 Project-derived skills inherit current project access. Access through any originating
 project is sufficient, including the responsible-user restrictions on agent execution.

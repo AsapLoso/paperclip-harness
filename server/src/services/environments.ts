@@ -1,6 +1,8 @@
+import { createReusableLeaseHandoff, preserveReusableLeaseHandoff, withoutReusableLeaseHandoff } from "./environment-lease-handoff.js";
+import { notifyNativeEnvironmentSettlement } from "./native-environment-settlement-notifications.js";
 import { notifyRetainedNativeSessionCleanup } from "./retained-native-session-cleanup-notifications.js";
 import { notifyChatInboundWakeNotices } from "./chat-inbound-wake-notice-notifications.js";
-import { writeEnvironmentCleanup, notifyEnvironmentCleanup } from "./environment-cleanup-notifications.js";
+import { notifyEnvironmentCleanup } from "./environment-cleanup-notifications.js";
 import { withoutCleanupVerification } from "./cleanup-verification-proof.js";
 import { randomUUID } from "node:crypto";
 
@@ -1464,7 +1466,9 @@ export function environmentService(db: Db) {
       assertCompanyBinding?: boolean;
     }): Promise<EnvironmentLease> => {
       const now = new Date();
+      const replacementLeaseId = input.replacesReusableLeaseId ? randomUUID() : null;
       const values = {
+        ...(replacementLeaseId ? { id: replacementLeaseId } : {}),
         companyId: input.companyId,
         environmentId: input.environmentId,
         executionWorkspaceId: input.executionWorkspaceId ?? null,
@@ -1480,7 +1484,7 @@ export function environmentService(db: Db) {
         releasedAt: null,
         failureReason: null,
         cleanupStatus: null,
-        metadata: withoutCleanupVerification(input.metadata),
+        metadata: withoutReusableLeaseHandoff(withoutCleanupVerification(input.metadata)),
         createdAt: now,
         updatedAt: now,
       };
@@ -1507,6 +1511,9 @@ export function environmentService(db: Db) {
         input.replacesReusableLeaseId ||
         input.reusesReusableLeaseId
           ? await db.transaction(async (tx) => {
+              if (input.heartbeatRunId) await notifyNativeEnvironmentSettlement(tx, {
+                companyId: input.companyId, runId: input.heartbeatRunId,
+              });
               if (input.assertCompanyBinding) {
                 // Lock the environment row first. Managed reconciliation locks the
                 // same sandbox environment rows with `for update` before it writes a
@@ -1567,6 +1574,7 @@ export function environmentService(db: Db) {
                       eq(environmentLeases.id, input.replacesReusableLeaseId),
                       eq(environmentLeases.companyId, input.companyId),
                       eq(environmentLeases.environmentId, input.environmentId),
+                      sql`${environmentLeases.provider} is not distinct from ${input.provider ?? null}`,
                       input.executionWorkspaceId
                         ? eq(environmentLeases.executionWorkspaceId, input.executionWorkspaceId)
                         : and(
@@ -1585,14 +1593,21 @@ export function environmentService(db: Db) {
                       ]),
                     ),
                   )
-                  .returning({ id: environmentLeases.id });
+                  .returning();
                 if (retired.length !== 1) {
                   throw conflict(
                     "Reusable sandbox lease ownership changed during acquisition.",
                   );
                 }
+                const handoff = createReusableLeaseHandoff(retired[0]!, { ...values, id: replacementLeaseId! });
+                values.metadata = { ...values.metadata, reusableLeasePredecessor: handoff };
+                await tx.update(environmentLeases).set({ metadata: {
+                  ...retired[0]!.metadata, reusableLeaseSuccessor: handoff,
+                } }).where(eq(environmentLeases.id, retired[0]!.id));
               }
               if (input.reusesReusableLeaseId) {
+                const [previous] = await tx.select({ metadata: environmentLeases.metadata }).from(environmentLeases)
+                  .where(and(eq(environmentLeases.id, input.reusesReusableLeaseId), eq(environmentLeases.companyId, input.companyId))).for("update");
                 const reacquired = await tx
                   .update(environmentLeases)
                   .set({
@@ -1602,7 +1617,7 @@ export function environmentService(db: Db) {
                     expiresAt: input.expiresAt ?? null,
                     failureReason: null,
                     cleanupStatus: null,
-                    metadata: withoutCleanupVerification(input.metadata),
+                    metadata: preserveReusableLeaseHandoff(previous?.metadata ?? null, withoutCleanupVerification(input.metadata)),
                     updatedAt: now,
                   })
                   .where(
@@ -1648,11 +1663,12 @@ export function environmentService(db: Db) {
                 .returning()
                 .then((rows) => rows[0] ?? null);
             })
-          : await db
-              .insert(environmentLeases)
-              .values(values)
-              .returning()
-              .then((rows) => rows[0] ?? null);
+          : await db.transaction(async tx => {
+              if (input.heartbeatRunId) await notifyNativeEnvironmentSettlement(tx, {
+                companyId: input.companyId, runId: input.heartbeatRunId,
+              });
+              return tx.insert(environmentLeases).values(values).returning().then(rows => rows[0] ?? null);
+            });
       if (!row) {
         throw new Error("Failed to acquire environment lease");
       }
@@ -1675,7 +1691,7 @@ export function environmentService(db: Db) {
         : sql`${environmentLeases.metadata} - 'remoteExecutionTermination'`;
       const cleanupSettled = options?.expectedPendingCleanupAttemptId && options.cleanupStatus === "success"
         && status !== "pending_cleanup";
-      const row = await writeEnvironmentCleanup(db, async tx => {
+      const row = await db.transaction(async tx => {
         const condition = and(eq(environmentLeases.id, id), options?.expectedPendingCleanupAttemptId
           ? and(eq(environmentLeases.status, "pending_cleanup"),
               sql`${environmentLeases.metadata}->>'pendingCleanupAttemptId' = ${options.expectedPendingCleanupAttemptId}`)
@@ -1685,6 +1701,7 @@ export function environmentService(db: Db) {
           cleanupStatus: environmentLeases.cleanupStatus, releasedAt: environmentLeases.releasedAt,
         }).from(environmentLeases).where(condition).for("update");
         if (!previous) return null;
+        await notifyEnvironmentCleanup(tx, { companyId: previous.companyId, runId: previous.heartbeatRunId ?? undefined });
         if (previous.heartbeatRunId && (previous.status !== status ||
             (options?.cleanupStatus !== undefined && previous.cleanupStatus !== options.cleanupStatus) ||
             (status !== "retained" && !previous.releasedAt))) {
@@ -1764,7 +1781,7 @@ export function environmentService(db: Db) {
           .where(eq(environments.id, input.environmentId))
           .for("update");
         const environmentIdForRow = environmentRows[0]?.id ?? null;
-        await notifyEnvironmentCleanup(tx);
+        await notifyEnvironmentCleanup(tx, { companyId: input.companyId, runId: input.heartbeatRunId ?? undefined });
         return tx
           .insert(environmentLeases)
           .values({
@@ -1783,7 +1800,7 @@ export function environmentService(db: Db) {
             releasedAt: now,
             failureReason: input.failureReason,
             cleanupStatus: "failed",
-            metadata: withoutCleanupVerification(input.metadata),
+            metadata: withoutReusableLeaseHandoff(withoutCleanupVerification(input.metadata)),
             createdAt: now,
             updatedAt: now,
           })
@@ -1800,16 +1817,21 @@ export function environmentService(db: Db) {
       id: string,
       metadata: Record<string, unknown> | null,
     ): Promise<EnvironmentLease | null> => {
-      const row = await writeEnvironmentCleanup(db, tx => tx
-        .update(environmentLeases)
+      const row = await db.transaction(async tx => {
+        const [lease] = await tx.select({ companyId: environmentLeases.companyId, heartbeatRunId: environmentLeases.heartbeatRunId, metadata: environmentLeases.metadata })
+          .from(environmentLeases).where(eq(environmentLeases.id, id)).for("update");
+        if (!lease) return null;
+        await notifyEnvironmentCleanup(tx, { companyId: lease.companyId, runId: lease.heartbeatRunId ?? undefined });
+        return tx.update(environmentLeases)
         .set({
-          metadata: withoutCleanupVerification(metadata),
+          metadata: preserveReusableLeaseHandoff(lease.metadata, withoutCleanupVerification(metadata)),
           lastUsedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(environmentLeases.id, id))
         .returning()
-        .then((rows) => rows[0] ?? null));
+        .then((rows) => rows[0] ?? null);
+      });
       return row ? toEnvironmentLease(row) : null;
     },
 
@@ -1818,10 +1840,13 @@ export function environmentService(db: Db) {
       status: Extract<EnvironmentLeaseStatus, "released" | "expired" | "failed"> = "released",
     ): Promise<EnvironmentLease[]> => {
       const now = new Date();
-      const rows = await writeEnvironmentCleanup(db, async tx => {
+      const rows = await db.transaction(async tx => {
         const [run] = await tx.select({ companyId: heartbeatRuns.companyId }).from(heartbeatRuns)
           .where(eq(heartbeatRuns.id, heartbeatRunId)).limit(1);
-        if (run) await notifyRetainedNativeSessionCleanup(tx, { companyId: run.companyId, runId: heartbeatRunId });
+        if (run) {
+          await notifyEnvironmentCleanup(tx, { companyId: run.companyId, runId: heartbeatRunId });
+          await notifyRetainedNativeSessionCleanup(tx, { companyId: run.companyId, runId: heartbeatRunId });
+        }
         return tx.update(environmentLeases)
         .set({
           status,
