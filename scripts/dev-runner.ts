@@ -515,6 +515,19 @@ async function maybePreflightMigrations(options: { interactive?: boolean; autoAp
   await refreshPendingMigrations();
 }
 
+async function runDevMigrationPreflight(
+  options: { interactive?: boolean; autoApply?: boolean; exitOnDecline?: boolean } = {},
+) {
+  if (process.platform === "win32") {
+    // The Windows embedded-Postgres child can outlive its short-lived status
+    // helper. The server owns migration inspection/application and keeps its
+    // database supervisor alive for the full runtime.
+    console.log("[paperclip] Windows: migration checks will run in the server process.");
+    return;
+  }
+  await maybePreflightMigrations(options);
+}
+
 async function buildPluginSdk() {
   console.log("[paperclip] building plugin sdk...");
   const result = await runPnpm(
@@ -575,8 +588,15 @@ async function buildPaperclipRunner() {
     process.exit(typescriptResult.code);
   }
 
-  const nativeRunnerRequired = await getNativeRunnerRequired();
+  const packagedRunner = resolveNativeRunnerDevBinary({ repoRoot });
+  const nativeRunnerRequired = process.platform === "win32"
+    ? Boolean(configuredRunnerBinary?.trim() || packagedRunner)
+    : await getNativeRunnerRequired();
+  if (process.platform === "win32" && !nativeRunnerRequired) {
+    console.log("[paperclip] no compatible Windows Paperclip Runner binary is installed; skipping its native build.");
+  }
   if (
+    process.platform !== "win32" &&
     paperclipRunnerBinaryNeedsBuild({
       repoRoot,
       nativeRunnerRequired,
@@ -802,7 +822,7 @@ async function maybeAutoRestartChild() {
   }
 
   try {
-    await maybePreflightMigrations({
+    await runDevMigrationPreflight({
       autoApply: true,
       interactive: false,
       exitOnDecline: false,
@@ -898,7 +918,7 @@ if (serveBuiltUiForManagedRuntime) {
     uiBundleBuild = buildUiBundleForManagedRuntime();
   }
 }
-await maybePreflightMigrations();
+await runDevMigrationPreflight();
 if (uiBundleBuild) {
   env.PAPERCLIP_UI_DEV_MIDDLEWARE = (await uiBundleBuild) ? "false" : "true";
 }
