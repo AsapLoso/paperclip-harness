@@ -18,7 +18,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@paperclip/adapter-interface": "workspace:*",
     "better-sqlite3": "catalog:"
   },
   "devDependencies": {
