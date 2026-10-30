@@ -1,6 +1,6 @@
 {
-    "inputSha256":  "d218a120de4d06567b140c9669222633e60b8ac460cccc478038ca02322f15de",
-    "outputSha256":  "d218a120de4d06567b140c9669222633e60b8ac460cccc478038ca02322f15de",
-    "patchSha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "basis":  "Reviewed the fork catalog and importer additions; eval dependency state is unchanged."
+  "inputSha256": "d218a120de4d06567b140c9669222633e60b8ac460cccc478038ca02322f15de",
+  "outputSha256": "a8c822abc9475317be7f63856d796373a2bf14f63ff6d0b5452563438bb91fac",
+  "patchSha256": "cfded125fb12764f3f77cef9fe600006d4dc64517a573d960fb37af24e87f9d5",
+  "basis": "Generated from a trusted committed lockfile baseline during upstream sync. Review this offline correction and its hashes with the dependency changes."
 }
