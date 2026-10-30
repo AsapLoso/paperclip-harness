@@ -31,15 +31,76 @@ jobs:
 
       - name: Merge Upstream Master
         id: merge_upstream
+        shell: bash
         run: |
           echo "Attempting fast-forward or 3-way merge from upstream/master..."
           if git merge --no-edit upstream/master; then
             echo "merge_status=success" >> $GITHUB_OUTPUT
-          else
-            echo "Merge conflict detected!"
+            exit 0
+          fi
+
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          if [ -z "$conflicts" ]; then
+            echo "Upstream merge failed without a resolvable file conflict."
             git merge --abort
-            echo "merge_status=conflict" >> $GITHUB_OUTPUT
             exit 1
+          fi
+
+          unexpected=""
+          while IFS= read -r path; do
+            case "$path" in
+              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch) ;;
+              *) unexpected="${unexpected}${path}"$'\n' ;;
+            esac
+          done <<< "$conflicts"
+          if [ -n "$unexpected" ]; then
+            echo "Upstream conflicts outside the regenerable lock files:"
+            printf '%s' "$unexpected"
+            git merge --abort
+            exit 1
+          fi
+
+          echo "Resolving only the workspace lock and its generated report proof."
+          while IFS= read -r path; do
+            git checkout --ours -- "$path"
+            git add -- "$path"
+          done <<< "$conflicts"
+          git -c core.editor=true merge --continue
+          echo "merge_status=success" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm
+        if: steps.merge_upstream.outputs.merge_status == 'success'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+          run_install: false
+
+      - name: Setup Node.js
+        if: steps.merge_upstream.outputs.merge_status == 'success'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Refresh merged workspace lock and report proof
+        if: steps.merge_upstream.outputs.merge_status == 'success'
+        shell: bash
+        run: |
+          pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile
+          node tests/runner-e2e/prepare-report-lock.mjs --refresh
+
+          unexpected="$(git status --porcelain | awk '$2 != "pnpm-lock.yaml" && $2 != "tests/runner-e2e/report-lock.json" && $2 != "tests/runner-e2e/report-lock.patch" { print }')"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected files changed during lockfile refresh:"
+            git status --short
+            exit 1
+          fi
+
+          if ! git diff --quiet -- pnpm-lock.yaml tests/runner-e2e/report-lock.json tests/runner-e2e/report-lock.patch; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml tests/runner-e2e/report-lock.json tests/runner-e2e/report-lock.patch
+            git commit -m "chore(lockfile): refresh after upstream sync"
           fi
 
       - name: Push Synced Commits to Origin
