@@ -2,40 +2,55 @@ name: Daily Upstream Sync
 
 on:
   schedule:
-    # Run daily at 04:00 UTC
+    # Run daily at 04:00 UTC.
     - cron: '0 4 * * *'
-  workflow_dispatch: # Allow manual trigger anytime from GitHub UI
+  workflow_dispatch:
+
+concurrency:
+  group: paperclip-upstream-sync
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
+    outputs:
+      base_sha: ${{ steps.package.outputs.base_sha }}
+      sync_sha: ${{ steps.package.outputs.sync_sha }}
+      sync_needed: ${{ steps.package.outputs.sync_needed }}
     steps:
       - name: Checkout Fork
         uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
-          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Configure Git Author
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Upstream Remote & Fetch
+      - name: Record fork baseline
+        id: baseline
+        shell: bash
+        run: |
+          git checkout --force -B master HEAD
+          base_sha="$(git rev-parse HEAD)"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Add Upstream Remote and Fetch
         run: |
           git remote add upstream https://github.com/paperclipai/paperclip.git
           git fetch upstream master --tags
 
       - name: Merge Upstream Master
-        id: merge_upstream
         shell: bash
         run: |
           echo "Attempting fast-forward or 3-way merge from upstream/master..."
           if git merge --no-edit upstream/master; then
-            echo "merge_status=success" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -49,72 +64,191 @@ jobs:
           unexpected=""
           while IFS= read -r path; do
             case "$path" in
-              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch) ;;
+              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|.github/workflows/daily-upstream-sync.yml) ;;
               *) unexpected="${unexpected}${path}"$'\n' ;;
             esac
           done <<< "$conflicts"
           if [ -n "$unexpected" ]; then
-            echo "Upstream conflicts outside the regenerable lock files:"
+            echo "Upstream conflicts outside the regenerable lock files and fork-owned sync workflow:"
             printf '%s' "$unexpected"
             git merge --abort
             exit 1
           fi
 
-          echo "Resolving only the workspace lock and its generated report proof."
+          echo "Resolving lock conflicts from the fork baseline and preserving the fork-owned sync workflow."
           while IFS= read -r path; do
             git checkout --ours -- "$path"
             git add -- "$path"
           done <<< "$conflicts"
-          git -c core.editor=true merge --continue
-          echo "merge_status=success" >> $GITHUB_OUTPUT
+          GIT_EDITOR=true git merge --continue
 
-      - name: Setup pnpm
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        uses: pnpm/action-setup@v6
-        with:
-          version: 9.15.4
-          run_install: false
+      - name: Restore fork-owned sync workflow and report proof
+        env:
+          BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
+        run: |
+          git checkout "$BASE_SHA" -- \
+            .github/workflows/daily-upstream-sync.yml \
+            tests/runner-e2e/report-lock.json \
+            tests/runner-e2e/report-lock.patch
 
       - name: Setup Node.js
-        if: steps.merge_upstream.outputs.merge_status == 'success'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           package-manager-cache: false
 
-      - name: Refresh merged workspace lock and report proof
-        if: steps.merge_upstream.outputs.merge_status == 'success'
+      - name: Read pnpm version from package.json
+        id: read_pnpm
+        shell: bash
+        run: |
+          package_manager="$(node -p "require('./package.json').packageManager || ''")"
+          if [[ "$package_manager" != pnpm@* ]]; then
+            echo "Expected package.json packageManager to pin pnpm; found: $package_manager"
+            exit 1
+          fi
+          pnpm_version="${package_manager#pnpm@}"
+          pnpm_version="${pnpm_version%%+*}"
+          if [[ ! "$pnpm_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Unsupported pnpm version in package.json: $package_manager"
+            exit 1
+          fi
+          echo "version=$pnpm_version" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ steps.read_pnpm.outputs.version }}
+          run_install: false
+
+      - name: Resolve merged workspace lock and regenerate report proof
+        env:
+          BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
         shell: bash
         run: |
           pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile
-          node tests/runner-e2e/prepare-report-lock.mjs --refresh
+          node tests/runner-e2e/prepare-report-lock.mjs --refresh-from "$BASE_SHA"
 
-          unexpected="$(git status --porcelain | awk '$2 != "pnpm-lock.yaml" && $2 != "tests/runner-e2e/report-lock.json" && $2 != "tests/runner-e2e/report-lock.patch" { print }')"
-          if [ -n "$unexpected" ]; then
+          unexpected=""
+          while IFS= read -r path; do
+            case "$path" in
+              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|.github/workflows/daily-upstream-sync.yml) ;;
+              *) unexpected="${unexpected}${path}"$'\n' ;;
+            esac
+          done < <(git diff HEAD --name-only)
+          untracked="$(git ls-files --others --exclude-standard)"
+          if [ -n "$unexpected" ] || [ -n "$untracked" ]; then
             echo "Unexpected files changed during lockfile refresh:"
             git status --short
             exit 1
           fi
 
-          if ! git diff --quiet -- pnpm-lock.yaml tests/runner-e2e/report-lock.json tests/runner-e2e/report-lock.patch; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add pnpm-lock.yaml tests/runner-e2e/report-lock.json tests/runner-e2e/report-lock.patch
-            git commit -m "chore(lockfile): refresh after upstream sync"
+          if ! git diff --quiet HEAD --; then
+            git add -- \
+              .github/workflows/daily-upstream-sync.yml \
+              pnpm-lock.yaml \
+              tests/runner-e2e/report-lock.json \
+              tests/runner-e2e/report-lock.patch
+            git commit -m "chore(sync): preserve fork lock proof after upstream merge"
           fi
 
-      - name: Push Synced Commits to Origin
-        if: steps.merge_upstream.outputs.merge_status == 'success'
+      - name: Package prepared sync
+        id: package
+        env:
+          BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
+        shell: bash
         run: |
-          git push origin HEAD:refs/heads/master
+          sync_sha="$(git rev-parse HEAD)"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "sync_sha=$sync_sha" >> "$GITHUB_OUTPUT"
+          if [ "$sync_sha" = "$BASE_SHA" ]; then
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+            echo "Fork is already synchronized with upstream/master."
+            exit 0
+          fi
+
+          git merge-base --is-ancestor "$BASE_SHA" "$sync_sha"
+          git update-ref refs/paperclip-sync/prepared "$sync_sha"
+          bundle="$RUNNER_TEMP/paperclip-upstream-sync.bundle"
+          git bundle create "$bundle" refs/paperclip-sync/prepared "^$BASE_SHA"
+          git bundle verify "$bundle"
+          echo "sync_needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload prepared sync bundle
+        if: steps.package.outputs.sync_needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-upstream-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paperclip-upstream-sync.bundle
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Summarize Sync Failure
         if: failure()
         shell: bash
         run: |
           {
-            echo "## Daily upstream sync failed"
+            echo "## Daily upstream sync preparation failed"
             echo
             echo "Inspect the failed step and logs in this workflow run. Sync source: paperclipai/paperclip:master."
-            echo "If GitHub rejects a workflow-file push, configure the UPSTREAM_SYNC_TOKEN secret with Contents: write and Workflows: write."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  push-sync:
+    if: needs.sync-upstream.outputs.sync_needed == 'true'
+    needs: sync-upstream
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Fork for Push
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Download prepared sync bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: paperclip-upstream-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paperclip-upstream-sync
+
+      - name: Verify and push prepared sync
+        env:
+          BASE_SHA: ${{ needs.sync-upstream.outputs.base_sha }}
+          SYNC_SHA: ${{ needs.sync-upstream.outputs.sync_sha }}
+        shell: bash
+        run: |
+          current_sha="$(git rev-parse HEAD)"
+          if [ "$current_sha" != "$BASE_SHA" ]; then
+            echo "Fork master moved while upstream sync was prepared; refusing to push."
+            exit 1
+          fi
+
+          bundle="$RUNNER_TEMP/paperclip-upstream-sync/paperclip-upstream-sync.bundle"
+          git bundle verify "$bundle"
+          git fetch --no-tags "$bundle" refs/paperclip-sync/prepared:refs/paperclip-sync/prepared
+          prepared_sha="$(git rev-parse refs/paperclip-sync/prepared)"
+          if [ "$prepared_sha" != "$SYNC_SHA" ]; then
+            echo "Prepared bundle SHA does not match the read-only sync job output."
+            exit 1
+          fi
+          git merge-base --is-ancestor "$BASE_SHA" "$prepared_sha"
+
+          remote_sha="$(git ls-remote origin refs/heads/master | cut -f1)"
+          if [ "$remote_sha" != "$BASE_SHA" ]; then
+            echo "Fork master changed before push; refusing to push over a newer update."
+            exit 1
+          fi
+
+          git -c core.hooksPath=/dev/null push origin "$prepared_sha:refs/heads/master"
+
+      - name: Summarize Push Failure
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Daily upstream sync push failed"
+            echo
+            echo "The prepared sync was not pushed. Inspect the failure and confirm the UPSTREAM_SYNC_TOKEN secret has Contents: write permission. Changes to GitHub Actions workflows also require Workflows: write."
           } >> "$GITHUB_STEP_SUMMARY"

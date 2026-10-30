@@ -448,6 +448,14 @@ async function getMigrationStatusPayload() {
 }
 
 async function refreshPendingMigrations() {
+  if (process.platform === "win32") {
+    // The server owns Windows migration checks because its embedded database
+    // supervisor must remain alive while migrations are inspected/applied.
+    pendingMigrations = [];
+    writeDevServerStatus();
+    return { status: "serverManaged", pendingMigrations };
+  }
+
   const payload = await getMigrationStatusPayload();
   pendingMigrations =
     payload.status === "needsMigrations" && Array.isArray(payload.pendingMigrations)

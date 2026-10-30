@@ -26,23 +26,30 @@ export async function prepareReportLock(root = path.resolve(import.meta.dirname,
     return 'reviewed-correction';
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
-export async function refreshReportLock(root = path.resolve(import.meta.dirname, '../..')) {
+export async function refreshReportLock(root = path.resolve(import.meta.dirname, '../..'), baselineRef = 'HEAD') {
   const directory = path.join(root, 'tests/runner-e2e');
   const policyPath = path.join(directory, 'report-lock.json');
-  const policy = JSON.parse(await readFile(policyPath, 'utf8'));
-  const committed = execFileSync('git', ['show', 'HEAD:pnpm-lock.yaml'], { cwd: root });
+  if (baselineRef !== 'HEAD' && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(baselineRef)) {
+    throw new Error('Refresh baseline must be a full Git commit SHA');
+  }
+  const baseline = execFileSync('git', ['rev-parse', '--verify', `${baselineRef}^{commit}`], { cwd: root, encoding: 'utf8' }).trim();
+  if (baselineRef !== 'HEAD') {
+    execFileSync('git', ['merge-base', '--is-ancestor', baseline, 'HEAD'], { cwd: root, stdio: 'ignore' });
+  }
+  const policy = JSON.parse(execFileSync('git', ['show', `${baseline}:tests/runner-e2e/report-lock.json`], { cwd: root, encoding: 'utf8' }));
+  const committed = execFileSync('git', ['show', `${baseline}:pnpm-lock.yaml`], { cwd: root });
   const inputSha256 = sha256(committed);
   if (![policy.inputSha256, policy.outputSha256].includes(inputSha256)) {
     throw new Error('Committed report lock is not reviewed; refusing to refresh its proof');
   }
   const resolved = await readFile(path.join(root, 'pnpm-lock.yaml'));
   if (resolved.equals(committed)) return 'unchanged';
-  const patch = execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--no-color', 'HEAD', '--', 'pnpm-lock.yaml'], { cwd: root });
+  const patch = execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--no-color', baseline, '--', 'pnpm-lock.yaml'], { cwd: root });
   const changed = execFileSync('git', ['apply', '--numstat', '-'], { cwd: root, input: patch, encoding: 'utf8' });
   if (!/^\d+\s+\d+\s+pnpm-lock\.yaml\n$/.test(changed)) throw new Error('Report correction must change only the lockfile');
   await writeFile(path.join(directory, 'report-lock.patch'), patch);
   await writeFile(policyPath, JSON.stringify({ inputSha256, outputSha256: sha256(resolved), patchSha256: sha256(patch),
-    basis: 'Generated with the trusted master lockfile refresh. Review this offline correction and its hashes with the dependency changes.' }, null, 2) + '\n');
+    basis: 'Generated from a trusted committed lockfile baseline during upstream sync. Review this offline correction and its hashes with the dependency changes.' }, null, 2) + '\n');
   return 'refreshed';
 }
 
@@ -50,5 +57,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const args = process.argv.slice(2);
   if (args.length === 0) console.log(await prepareReportLock());
   else if (args.length === 1 && args[0] === '--refresh') console.log(await refreshReportLock());
-  else throw new Error('Usage: prepare-report-lock.mjs [--refresh]');
+  else if (args.length === 2 && args[0] === '--refresh-from') console.log(await refreshReportLock(undefined, args[1]));
+  else throw new Error('Usage: prepare-report-lock.mjs [--refresh | --refresh-from <commit-sha>]');
 }
