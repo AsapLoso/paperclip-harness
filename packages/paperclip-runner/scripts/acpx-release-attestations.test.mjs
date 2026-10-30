@@ -65,6 +65,15 @@ test("a relocated copy of the provider inputs computes the same attestations", a
   assert.equal(checked.status, 0, checked.stderr);
 });
 
+test("the Grok launcher attestation is stable across Windows line endings", async t => {
+  const relocated = relocatedPackage(t);
+  const launcher = join(relocated, "src/providers/grok/launcher.cjs");
+  const source = readFileSync(launcher, "utf8").replace(/\r\n?/g, "\n");
+  writeFileSync(launcher, source.replace(/\n/g, "\r\n"));
+  assert.equal((await acpxReleaseAttestation("grok", relocated)).commandDigest,
+    manifest.profiles.grok.commandDigest);
+});
+
 test("the attestations bind no Paperclip source beyond the Grok launcher", async () => {
   for (const agent of ["copilot", "pi"]) {
     const { declaration } = await acpxReleaseAttestation(agent, packageRoot);
