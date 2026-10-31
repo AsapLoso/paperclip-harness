@@ -1,6 +1,7 @@
 import { useIssueIdBatches } from "@/hooks/useIssueIdBatches";
 import { useConversationHistoryPages, type ConversationHistoryPage } from "@/hooks/useConversationHistoryPages";
 import { taskChatHashAnchor } from "@/components/task-chat/scroll-navigation";
+import { AgentChatReadProvider } from "@/hooks/useAgentChatRead";
 import { useCoordinatorWorkspaceEnabled } from "@/hooks/useCoordinatorWorkspaceEnabled";
 import { CoordinatorAgentSwitcher } from "@/components/CoordinatorAgentSwitcher";
 import { TaskDecisionRecord } from "@/components/TaskDecisionRecord";
@@ -16,7 +17,7 @@ import { WorkspaceRetryControl } from "../components/WorkspaceRetryButton";
 import { isLockedIssueStub, LockedIssueChip } from "@/components/LockedIssueChip";
 import { canManageIssuePrivacy } from "../lib/issuePrivacy";
 import { TextAttachmentContext } from "../context/TextAttachmentContext";
-import { useTaskPluginPanels, taskPluginPanelId } from "@/hooks/useTaskPluginPanels";
+import { useTaskPluginPanels, taskPluginPanelActivationKey } from "@/hooks/useTaskPluginPanels";
 import { useTaskBrowsers, useBrowserArrivals } from "@/hooks/useTaskBrowsers";
 import { WorkspaceExportRecovery } from "../components/WorkspaceExportRecovery";
 import { DispositionRecoveryProvider } from "../components/DispositionRecoveryNotice";
@@ -384,6 +385,7 @@ import {
   type IssueRecentComments,
   type IssueDocumentSummary,
   type IssueWorkProduct,
+  type Project,
   type IssueWorkMode,
   type IssueThreadInteraction,
   type RequestCheckboxConfirmationInteraction,
@@ -402,6 +404,7 @@ import {
 // (loading/idle), which destabilizes downstream memos and panel keys that
 // depend on it. Reusing one shared reference keeps those values stable.
 const EMPTY_ISSUES: Issue[] = [];
+const EMPTY_PROJECTS: Project[] = [];
 
 type StopAndFinalizeRunError = Error & {
   runCancelledBeforeStatusUpdateFailed?: boolean;
@@ -1280,6 +1283,7 @@ type IssueDetailChatTabProps = {
   locallyQueuedCommentRunIds: ReadonlyMap<string, string>;
   interactions: IssueThreadInteraction[];
   documents: IssueDocumentSummary[];
+  createdTasks: Issue[];
   workProducts: IssueWorkProduct[];
   attachments: IssueAttachment[];
   hasOlderComments: boolean;
@@ -1437,6 +1441,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
   locallyQueuedCommentRunIds,
   interactions,
   documents,
+  createdTasks,
   workProducts,
   attachments,
   hasOlderComments,
@@ -1956,6 +1961,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
       }
     }
     const projectedComments = commentsToProject.map((comment) => {
+      if (comment.metadata?.chatMessage) return { ...comment, runId: null };
       const activityMeta = runMetaByCommentId.get(comment.id);
       // Internal run finalization can persist a reply without a separate
       // comment_added activity row. Its durable authoring run is stronger
@@ -2653,7 +2659,7 @@ const IssueDetailChatTab = memo(function IssueDetailChatTab({
             interruption={interruption}
             retryPreparing={retryPreparing}
             key={conversationMode ? draftKey : issueId}
-            {...(!classicTaskInterfaceEnabled ? { creationActivity: resolvedActivity } : {})}
+            {...(!classicTaskInterfaceEnabled ? { creationActivity: resolvedActivity, createdTasks } : {})}
             onOpenSkill={onOpenSkill}
             browsers={browsers}
             onOpenBrowser={onOpenBrowser}
@@ -3678,7 +3684,9 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       createdFromIssueId: issue!.id,
       includeRoutineExecutions: true,
     }),
-    enabled: streamlinedTaskDetailEnabled && !!resolvedCompanyId && !!issue?.id && !tasksTab,
+    enabled: !!resolvedCompanyId && !!issue?.id && !issue.id.startsWith("chat:") && (
+      (taskChatShellEnabled && !conversation) || (streamlinedTaskDetailEnabled && !tasksTab)
+    ),
   });
 
   const {
@@ -3738,7 +3746,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   });
   // Bounded pool of recently-updated issues to back the `@task` reference picker.
   // The picker filters this list client-side by identifier/title.
-  const { data: mentionIssues = [] } = useQuery({
+  const { data: mentionIssues = EMPTY_ISSUES } = useQuery({
     queryKey: resolvedCompanyId
       ? queryKeys.issues.mentionPool(resolvedCompanyId)
       : ["issues", "mention-pool", "pending"],
@@ -3760,7 +3768,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     queryFn: () => authApi.getSession(),
   });
 
-  const { data: projects } = useQuery({
+  const { data: projects = EMPTY_PROJECTS } = useQuery({
     queryKey: queryKeys.projects.list(selectedCompanyId!),
     queryFn: () => projectsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -3812,7 +3820,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
   const fileViewerEnabled =
     instanceExperimentalSettings?.enableExperimentalFileViewer === true;
   const { orderedProjects } = useProjectOrder({
-    projects: projects ?? [],
+    projects,
     companyId: selectedCompanyId,
     userId: currentUserId,
   });
@@ -3957,6 +3965,10 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
   }, [issue?.id, rawChildIssues]);
+  const threadCreatedTasks = useMemo(() => [
+    ...childIssues.filter((task) => task.parentId === issue?.id),
+    ...(createdTasksQuery.data ?? EMPTY_ISSUES),
+  ], [childIssues, createdTasksQuery.data, issue?.id]);
   const resolvedTasksTab = useMemo(() => {
     if (tasksTab) return tasksTab;
     if (!streamlinedTaskDetailEnabled) return undefined;
@@ -3977,7 +3989,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           issueLinkState={resolvedIssueDetailState ?? location.state}
           subtasks={childIssues}
           createdTasks={createdTasks}
-          projects={projects ?? []}
+          projects={projects}
           isLoading={createdTasksQuery.isLoading || childIssuesLoading}
           hasError={hasError}
           onRetry={() => {
@@ -4094,19 +4106,22 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     const timeout = window.setTimeout(() => observer.disconnect(), 10_000);
     return () => { observer.disconnect(); window.clearTimeout(timeout); };
   }, [coordinatorWorkspaceEnabled, issue?.id, location.hash, location.key]);
-  const pluginPanels = useTaskPluginPanels(issue, taskChatShellEnabled);
+  const taskPanelAccountScope = coordinatorWorkspaceEnabled ? `coordinator:${currentUserId ?? "anonymous"}` : currentUserId ?? "anonymous";
+  const { panels: pluginPanels, isLoading: pluginPanelsLoading } = useTaskPluginPanels(issue, taskChatShellEnabled);
   const revealedPluginPanels = useRef(new Set<string>());
   const openedPluginPanelKeys = useRef(new Set<string>());
   const dismissedPluginPanelKeys = useRef(new Set<string>());
   useEffect(() => {
     for (const panel of pluginPanels) {
-      const key = JSON.stringify([currentUserId, issue?.id, panel.runId, taskPluginPanelId(panel)]);
+      if (!panel.autoOpen || !panel.runId) continue;
+      const key = taskPluginPanelActivationKey(panel, taskPanelAccountScope, issue!);
       if (revealedPluginPanels.current.has(key)) continue;
       revealedPluginPanels.current.add(key);
+      if (dismissedPluginPanelKeys.current.has(key)) continue;
       openTaskSidePanel();
       if (isMobile) setMobilePropsOpen(true);
     }
-  }, [pluginPanels, currentUserId, issue?.id, openTaskSidePanel, isMobile]);
+  }, [pluginPanels, taskPanelAccountScope, issue?.companyId, issue?.id, openTaskSidePanel, isMobile]);
   const browserQuery = useTaskBrowsers(issue?.id);
   const { openBrowserId, openBrowser: setOpenBrowserId, acknowledgeBrowserOpened: handleBrowserOpened } =
     useBrowserArrivals(currentUserId ?? "anonymous", issue?.id, browserQuery.data);
@@ -6098,6 +6113,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
 
   useEffect(() => {
     if (!issueId || !issue?.id) return;
+    if (issue.conversationAgentId) return;
     if (lastMarkedReadIssueIdRef.current === issue.id) return;
     lastMarkedReadIssueIdRef.current = issue.id;
     markIssueRead.mutate(issue.id);
@@ -6192,6 +6208,25 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     [openIssueGallery],
   );
 
+  const taskDocumentEditor = useMemo<NonNullable<TaskSidePanelProps["documentEditor"]>>(() => ({
+    feedbackVotes,
+    feedbackDataSharingPreference,
+    feedbackTermsUrl: FEEDBACK_TERMS_URL,
+    mentions: mentionOptions,
+    externalReferences: externalObjectsState.isEnabled ? externalObjectsState.markdownReferences : undefined,
+    imageUploadHandler: async (file) => (await uploadAttachment.mutateAsync(file)).contentPath,
+    onVote: async (revisionId, vote, options) => {
+      await feedbackVoteMutation.mutateAsync({
+        targetType: "issue_document_revision", targetId: revisionId, vote,
+        reason: options?.reason, allowSharing: options?.allowSharing,
+        sharingPreferenceAtSubmit: feedbackDataSharingPreference,
+      });
+    },
+    agentMap,
+    userProfileMap,
+  }), [feedbackVotes, feedbackDataSharingPreference, mentionOptions, externalObjectsState.isEnabled,
+    externalObjectsState.markdownReferences, uploadAttachment.mutateAsync, feedbackVoteMutation.mutateAsync, agentMap, userProfileMap]);
+
   useLayoutEffect(() => {
     if (!panelIssue || suppressPanelUntilPlan || (conversation && !conversation.issue) || (taskChatShellEnabled && isMobile)) {
       closePanel();
@@ -6232,14 +6267,16 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
       openPanel(
         <IssueGalleryContext.Provider value={openIssueGallery}>
           <TaskSidePanel
+            documentEditor={taskDocumentEditor}
             pluginPanels={pluginPanels}
+            pluginPanelsLoading={pluginPanelsLoading}
             openedPluginPanelKeys={openedPluginPanelKeys.current}
             dismissedPluginPanelKeys={dismissedPluginPanelKeys.current}
             openBrowserId={openBrowserId}
             onBrowserOpened={handleBrowserOpened}
             key={panelIssue.id}
             {...sharedProps}
-            accountScope={coordinatorWorkspaceEnabled ? `coordinator:${currentUserId ?? "anonymous"}` : currentUserId ?? "anonymous"}
+            accountScope={taskPanelAccountScope}
             fileTabsEnabled={fileViewerEnabled}
             streamlinedTabs={streamlinedTaskDetailEnabled}
             showSubtasksTab={streamlinedTaskDetailEnabled}
@@ -6261,6 +6298,8 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     return () => closePanel();
   }, [
     pluginPanels,
+    pluginPanelsLoading,
+    taskPanelAccountScope,
     openBrowserId,
     handleBrowserOpened,
     closePanel,
@@ -6288,6 +6327,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
     externalObjectsState.refetch,
     documentDeepLink,
     taskChatShellEnabled,
+    taskDocumentEditor,
     currentUserId,
     coordinatorWorkspaceEnabled,
     fileViewerEnabled,
@@ -8076,6 +8116,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
 
   return (
     <FileViewerProvider issueId={conversation && !conversation.issue ? "" : issue.id} enabled={fileViewerEnabled}>
+      <AgentChatReadProvider issueId={issue.conversationAgentId && issue.conversationUserId === (currentUserId ?? "local-board") && (!conversation || conversation.issue) ? issue.id : undefined} companyId={issue.companyId} userId={currentUserId}>
       <TextAttachmentContext.Provider value={taskChatShellEnabled ? handleOpenTextAttachment : null}><IssueGalleryContext.Provider value={openIssueGallery}>
         <div
           data-task-chat-shell={taskChatShellEnabled ? "" : undefined}
@@ -8222,35 +8263,11 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           pane (Artifacts tab) — the center column belongs to the thread. */}
           {taskChatShellEnabled ? null : (
             <IssueDocumentsSection
+              {...taskDocumentEditor}
               issue={issue}
               canDeleteDocuments={Boolean(session?.user?.id)}
               canManageDocumentLocks={Boolean(session?.user?.id)}
-              feedbackVotes={feedbackVotes}
-              feedbackDataSharingPreference={feedbackDataSharingPreference}
-              feedbackTermsUrl={FEEDBACK_TERMS_URL}
-              mentions={mentionOptions}
-              externalReferences={
-                externalObjectsState.isEnabled
-                  ? externalObjectsState.markdownReferences
-                  : undefined
-              }
-              imageUploadHandler={async (file) => {
-                const attachment = await uploadAttachment.mutateAsync(file);
-                return attachment.contentPath;
-              }}
-              onVote={async (revisionId, vote, options) => {
-                await feedbackVoteMutation.mutateAsync({
-                  targetType: "issue_document_revision",
-                  targetId: revisionId,
-                  vote,
-                  reason: options?.reason,
-                  allowSharing: options?.allowSharing,
-                  sharingPreferenceAtSubmit: feedbackDataSharingPreference,
-                });
-              }}
               extraActions={!hasAttachments ? attachmentUploadButton : null}
-              agentMap={agentMap}
-              userProfileMap={userProfileMap}
             />
           )}
 
@@ -8456,7 +8473,17 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   onOpenSkill={handleOpenSkill}
                   browsers={browserQuery.data}
                   onOpenBrowser={(id) => { setOpenBrowserId(id); if (isMobile) setMobilePropsOpen(true); else openTaskSidePanel(); }}
-                  threadHeader={<>{taskChatThreadHeader}<EmailTaskActivity key={issue.id} companyId={issue.companyId} issueId={issue.id} /></>}
+                  threadHeader={<>{taskChatThreadHeader}<EmailTaskActivity key={issue.id} companyId={issue.companyId} issueId={issue.id} />
+                    {(childIssuesError || createdTasksQuery.isError) && (
+                      <div role="alert" className="flex items-center gap-2 px-4 text-sm text-destructive">
+                        <span>Could not load created tasks.</span>
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          void refetchChildIssues();
+                          void createdTasksQuery.refetch();
+                        }}>Retry</Button>
+                      </div>
+                    )}
+                  </>}
                   issueBrief={
                     // Suppress the seeded-description bubble for the onboarding first
                     // task: its description is agent instructions, not something the
@@ -8558,6 +8585,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                   locallyQueuedCommentRunIds={locallyQueuedCommentRunIds}
                   interactions={interactions}
                   documents={issue.documentSummaries ?? []}
+                  createdTasks={threadCreatedTasks}
                   workProducts={workProducts ?? issue.workProducts ?? []}
                   attachments={attachments ?? []}
                   hasOlderComments={paginatedConversation && !historyExpanded
@@ -8854,14 +8882,16 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
                     <SheetTitle>Task side panel</SheetTitle>
                   </SheetHeader>
                   <TaskSidePanel
+                    documentEditor={taskDocumentEditor}
                     pluginPanels={pluginPanels}
+                    pluginPanelsLoading={pluginPanelsLoading}
                     openedPluginPanelKeys={openedPluginPanelKeys.current}
                     dismissedPluginPanelKeys={dismissedPluginPanelKeys.current}
                     openBrowserId={openBrowserId}
                     onBrowserOpened={handleBrowserOpened}
                     key={`${issue.id}:mobile`}
                     issue={issue}
-                    accountScope={coordinatorWorkspaceEnabled ? `coordinator:${currentUserId ?? "anonymous"}` : currentUserId ?? "anonymous"}
+                    accountScope={taskPanelAccountScope}
                     childIssues={childIssues}
                     issueLinkState={
                       streamlinedTaskDetailEnabled
@@ -8984,6 +9014,7 @@ export function TaskDetailSurface({ conversation, tasksTab }: { tasksTab?: TaskS
           <ScrollToBottom />
         </div>
       </IssueGalleryContext.Provider></TextAttachmentContext.Provider>
+      </AgentChatReadProvider>
     </FileViewerProvider>
   );
 }
