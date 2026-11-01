@@ -9,6 +9,40 @@ const fail = code => {
   const match = /^(testops_(?:api|auth)|chat_testops_github)_http_([1-5][0-9]{2})$/.exec(code);
   throw new SetupFailure(match ? `${match[1]}_http` : code, match ? Number(match[2]) : null);
 };
+const bootstrapRequestClasses = new Set(['JOB_RUN_GET', 'LAUNCH_GET', 'JOB_GET']);
+const uploadFailureChecks = {
+  context: ['selected_run', 'selected_attempt', 'selected_workflow_sha', 'selected_target_sha', 'selected_jobrun', 'env_jobrun', 'selected_execution',
+    'selected_scenario', 'selected_project', 'selected_full_name', 'plan_id', 'job_id', 'case_id', 'launch_id', 'export_case',
+    'export_campaign', 'export_count', 'export_status', 'export_cleanup', 'passed_cleanup', 'attachment_array', 'attachment_count'],
+  attachment_contract: ['attachment_rows', 'provenance_count', 'record_count', 'passed_screenshot'],
+  jobrun: ['jobrun_id', 'job_id', 'job_type', 'launch_id', 'run_url', 'stage'],
+  launch: ['launch_id', 'project_id'],
+  result_page: ['content_array', 'content_limit', 'total_integer', 'total_matches_content', 'pages_integer', 'pages_range'],
+  result_row: ['result_id', 'case_id'],
+  result: ['result_id', 'project_id', 'launch_id', 'case_id', 'full_name', 'jobrun_id', 'jobrun_launch', 'jobrun_url',
+    'embedded_job', 'links_array', 'known_links'],
+  result_status: ['status_supported', 'status_matches_export'],
+  attachment_page: ['content_array', 'content_limit', 'total_integer', 'total_matches_content', 'pages_integer', 'pages_range',
+    'unique_ids', 'ids_valid', 'not_inherited', 'attachment_rows'],
+  attachment_readiness: ['attachment_page_observed', 'attachments_not_missed', 'attachment_signatures_match', 'result_status_matches', 'attachments_ready'],
+};
+const uploadFailures = new WeakMap();
+function stopUpload(code, phase, readChecks, attachmentReadiness) {
+  const error = new SetupFailure(code);
+  let values;
+  try { values = readChecks(); } catch {}
+  const names = uploadFailureChecks[phase].filter(name => Array.isArray(values?.[name]) && typeof values[name][0] === 'boolean');
+  const checks = Object.fromEntries(names.map(name => [name, values[name][0]]));
+  const types = Object.fromEntries(names.filter(name => values[name].length === 2).map(name => {
+    const value = values[name][1], type = typeof value;
+    return [name, value === undefined ? 'missing' : value === null ? 'null' : Array.isArray(value) ? 'array'
+      : ['string', 'number', 'boolean', 'object'].includes(type) ? type : 'other'];
+  }));
+  const failedPredicates = Object.keys(checks).filter(name => !checks[name]);
+  uploadFailures.set(error, { phase, firstFailedPredicate: failedPredicates[0] ?? 'checks_unavailable', failedPredicates, checks, types,
+    ...(attachmentReadiness ? { attachmentReadiness: attachmentReadiness.map(row => ({ ...row })) } : {}) });
+  throw error;
+}
 const diagnosticCodes = new Set(['untrusted_chat_testops_context', 'testops_token_missing', 'testops_auth_http',
   'testops_api_http', 'testops_auth_invalid', 'testops_route_invalid', 'testops_response_too_large',
   'testops_response_invalid', 'testops_metadata_page_incomplete', 'testops_case_identity_invalid',
@@ -17,12 +51,21 @@ const diagnosticCodes = new Set(['untrusted_chat_testops_context', 'testops_toke
   'testops_created_case_identity_invalid', 'testops_created_plan_identity_invalid', 'testops_plan_scope_mismatch',
   'testops_operation_invalid', 'testops_output_invalid', 'untrusted_public_testops_context', 'chat_testops_identity_missing',
   'chat_testops_case_mismatch', 'chat_testops_plan_mismatch', 'chat_testops_plan_job_mismatch', 'chat_testops_job_mismatch',
-  'chat_testops_jobrun_mismatch', 'chat_testops_launch_mismatch', 'chat_testops_selection_mismatch', 'chat_testops_parameter_mismatch', 'chat_testops_nonce_invalid', 'chat_testops_nonce_conflict', 'chat_testops_catalog_incomplete', 'chat_testops_launch_admission', 'chat_testops_github_http', 'chat_testops_integration_mismatch', 'chat_testops_upload_mismatch', 'chat_testops_upload_unverified']);
+  'chat_testops_job_id_mismatch', 'chat_testops_job_type_mismatch', 'chat_testops_job_parameters_shape_mismatch',
+  'chat_testops_job_parameters_limit', 'chat_testops_job_url_mismatch', 'chat_testops_jobrun_mismatch', 'chat_testops_launch_mismatch', 'chat_testops_selection_mismatch', 'chat_testops_parameter_mismatch', 'chat_testops_nonce_invalid', 'chat_testops_nonce_conflict', 'chat_testops_catalog_incomplete', 'chat_testops_launch_admission', 'chat_testops_github_http', 'chat_testops_integration_mismatch', 'chat_testops_upload_mismatch', 'chat_testops_upload_unverified']);
 export function failureProjection(error, stage) {
-  const stages = ['context', 'output_admission', 'authentication', 'metadata_inspection', 'plan_bootstrap', 'selection_validation', 'launch_admission', 'launch_preflight', 'plan_launch', 'bootstrap_job_metadata', 'result_export', 'upload_verification', 'receipt'];
+  const request = error instanceof SetupFailure ? error.request : undefined;
+  const verification = error instanceof SetupFailure ? uploadFailures.get(error) : undefined;
+  const stages = ['context', 'output_admission', 'authentication', 'metadata_inspection', 'plan_bootstrap', 'selection_validation', 'launch_admission', 'launch_preflight', 'plan_launch', 'bootstrap_job_metadata', 'result_export', 'upload_verification', 'bootstrap_context', 'receipt'];
   return { stage: stages.includes(stage) ? stage : 'unknown',
     code: error instanceof SetupFailure && diagnosticCodes.has(error.code) ? error.code : 'unknown_failure',
-    httpStatus: error instanceof SetupFailure && Number.isInteger(error.status) && error.status >= 100 && error.status < 600 ? error.status : null };
+    httpStatus: error instanceof SetupFailure && Number.isInteger(error.status) && error.status >= 100 && error.status < 600 ? error.status : null,
+    ...(verification ? { verification: { ...verification, failedPredicates: [...verification.failedPredicates],
+      checks: { ...verification.checks }, types: { ...verification.types },
+      ...(verification.attachmentReadiness ? { attachmentReadiness: verification.attachmentReadiness.map(row => ({ ...row })) } : {}) } } : {}),
+    ...(request && bootstrapRequestClasses.has(request.class) && id(request.resourceId) && ['STARTED', 'SUCCEEDED', 'FAILED'].includes(request.state)
+      ? { request: { class: request.class, resourceId: request.resourceId, state: request.state,
+        httpStatus: Number.isInteger(request.httpStatus) && request.httpStatus >= 100 && request.httpStatus < 600 ? request.httpStatus : null } } : {}) };
 }
 const id = value => Number.isSafeInteger(value) && value > 0;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -146,9 +189,7 @@ export async function validateChatSelection(api, env) {
   const assignments = await api(`/api/testplan/${planId}/job`);
   if (!Array.isArray(assignments) || assignments.length !== 1 || assignments[0].job?.id !== jobId || assignments[0].testCasesCount !== 1) fail('chat_testops_plan_job_mismatch');
   const job = await api(`/api/job/${jobId}`);
-  const jobUrls = ['https://github.com/paperclipai/paperclip/actions/workflows/chat-feature-testops.yml'];
-  if (positive(env.CHAT_TESTOPS_GITHUB_WORKFLOW_ID)) jobUrls.push(`https://github.com/paperclipai/paperclip/actions/workflows/${env.CHAT_TESTOPS_GITHUB_WORKFLOW_ID}`);
-  if (job.id !== jobId || job.type !== 'github' || !jobUrls.includes(job.url)) fail('chat_testops_job_mismatch');
+  if (job.id !== jobId || job.type !== 'github' || !publicJobUrl(job.url, env)) fail('chat_testops_job_mismatch');
   const run = await api(`/api/jobrun/${jobRunId}`);
   if (run.id !== jobRunId || run.job?.id !== jobId || run.job?.type !== 'github'
     || !['scheduled', 'in_progress'].includes(run.stage) || !id(run.launchId)
@@ -162,12 +203,16 @@ export async function validateChatSelection(api, env) {
 }
 
 function configuredIds(env) {
-  const names = ['CHAT_TESTOPS_CASE_ID', 'CHAT_TESTOPS_PLAN_ID', 'CHAT_TESTOPS_JOB_ID', 'CHAT_TESTOPS_OPERATION_PARAMETER_ID', 'CHAT_TESTOPS_INTEGRATION_ID'];
+  const names = ['CHAT_TESTOPS_CASE_ID', 'CHAT_TESTOPS_PLAN_ID', 'CHAT_TESTOPS_JOB_ID', 'CHAT_TESTOPS_INTEGRATION_ID'];
   if (names.some(name => !positive(env[name]))) fail('chat_testops_identity_missing');
-  return Object.fromEntries(names.map((name, index) => [['caseId', 'planId', 'jobId', 'parameterId', 'integrationId'][index], Number(env[name])]));
+  const operation = env.CHAT_TESTOPS_OPERATION_PARAMETER_ID;
+  if (operation !== undefined && operation !== '' && !positive(operation)) fail('chat_testops_identity_missing');
+  return { ...Object.fromEntries(names.map((name, index) => [['caseId', 'planId', 'jobId', 'integrationId'][index], Number(env[name])])),
+    parameterId: positive(operation) ? Number(operation) : null };
 }
 function publicJobUrl(url, env) {
   return url === 'https://github.com/paperclipai/paperclip/actions/workflows/chat-feature-testops.yml'
+    || url === 'https://github.com/paperclipai/paperclip/actions?query=workflow%3A%22Chat+feature+TestOps%22'
     || positive(env.CHAT_TESTOPS_GITHUB_WORKFLOW_ID) && url === `https://github.com/paperclipai/paperclip/actions/workflows/${env.CHAT_TESTOPS_GITHUB_WORKFLOW_ID}`;
 }
 async function registeredPlan(api, env) {
@@ -182,29 +227,82 @@ async function registeredPlan(api, env) {
   if (job.id !== ids.jobId || job.type !== 'github' || !publicJobUrl(job.url, env)) fail('chat_testops_job_mismatch');
   const integration = await api(`/api/integration/${ids.integrationId}/project/1`);
   if (integration.id !== ids.integrationId || integration.projectId !== 1 || integration.info?.type !== 'github' || integration.disabled !== false) fail('chat_testops_integration_mismatch');
-  const definition = await api(`/api/environment/${ids.parameterId}`);
-  if (definition.id !== ids.parameterId || definition.name !== 'operation' || !Array.isArray(job.parameters) || job.parameters.length !== 1
-    || job.parameters[0].id !== ids.parameterId || !['bootstrap', 'evaluate'].includes(job.parameters[0].value)) fail('chat_testops_parameter_mismatch');
-  return { ...ids, selected, plan, job };
+  if (!Array.isArray(job.parameters) || job.parameters.length < 1 || job.parameters.length > 2) fail('chat_testops_parameter_mismatch');
+  const seenIds = new Set(), parameters = [];
+  let hasOperation = false, hasRef = false;
+  for (const parameter of job.parameters) {
+    if (!id(parameter.id) || seenIds.has(parameter.id)) fail('chat_testops_parameter_mismatch');
+    seenIds.add(parameter.id);
+    if (parameter.id === ids.parameterId) {
+      if (!['bootstrap', 'evaluate'].includes(parameter.value)) fail('chat_testops_parameter_mismatch');
+      hasOperation = true;
+      parameters.push({ id: parameter.id, value: 'evaluate' });
+    } else {
+      if (hasRef || parameter.value !== 'refs/heads/master') fail('chat_testops_parameter_mismatch');
+      hasRef = true;
+      parameters.push({ id: parameter.id, value: parameter.value });
+    }
+  }
+  if (ids.parameterId === null ? parameters.length !== 1 || !hasRef : !hasOperation) fail('chat_testops_parameter_mismatch');
+  return { ...ids, selected, plan, job, parameters };
 }
 
-export async function bootstrapJobMetadata(api, env) {
-  if (!positive(env.ALLURE_JOB_RUN_ID)) return { status: 'official_job_run_id_missing', actualResult: null };
-  const run = await api(`/api/jobrun/${env.ALLURE_JOB_RUN_ID}`);
-  if (!id(run?.job?.id)) fail('chat_testops_jobrun_mismatch');
-  const job = await api(`/api/job/${run.job.id}`);
-  if (job.id !== run.job.id || job.type !== 'github' || !Array.isArray(job.parameters) || job.parameters.length > 4) fail('chat_testops_job_mismatch');
-  const parameters = [];
-  for (const parameter of job.parameters) {
-    if (!id(parameter.id)) fail('chat_testops_parameter_mismatch');
-    const definition = await api(`/api/environment/${parameter.id}`);
-    const known = ['operation', 'ALLURE_JOB_RUN_ID', 'ALLURE_USERNAME'].includes(definition.name);
-    parameters.push({ id: parameter.id, name: known ? definition.name : 'UNKNOWN',
-      value: definition.name === 'operation' && ['bootstrap', 'evaluate', 'launch-plan'].includes(parameter.value) ? parameter.value : 'NOT_PROJECTED' });
+export async function bootstrapJobMetadata(api, env, expectedLaunchId) {
+  const requests = [];
+  const read = async (kind, resourceId, route) => {
+    const request = { class: kind, resourceId, state: 'STARTED', httpStatus: null };
+    requests.push(request);
+    try {
+      const value = await api(route);
+      request.state = 'SUCCEEDED';
+      return value;
+    } catch (error) {
+      request.state = 'FAILED';
+      request.httpStatus = error instanceof SetupFailure ? error.status : null;
+      throw error;
+    }
+  };
+  try {
+    const strict = expectedLaunchId !== undefined;
+    const context = strict ? publicContext(env) : undefined;
+    if (strict && !id(expectedLaunchId)) fail('chat_testops_launch_mismatch');
+    if (!positive(env.ALLURE_JOB_RUN_ID)) {
+      if (strict) fail('chat_testops_jobrun_mismatch');
+      return { status: 'official_job_run_id_missing', actualResult: null };
+    }
+    const run = await read('JOB_RUN_GET', Number(env.ALLURE_JOB_RUN_ID), `/api/jobrun/${env.ALLURE_JOB_RUN_ID}`);
+    if (!id(run?.job?.id)) fail('chat_testops_jobrun_mismatch');
+    if (strict) {
+      if (run.id !== Number(env.ALLURE_JOB_RUN_ID) || run.job.type !== 'github' || run.launchId !== expectedLaunchId
+        || run.url !== `https://github.com/paperclipai/paperclip/actions/runs/${context.runId}`) fail('chat_testops_jobrun_mismatch');
+      const launch = await read('LAUNCH_GET', expectedLaunchId, `/api/launch/${expectedLaunchId}`);
+      if (launch.id !== expectedLaunchId || launch.projectId !== 1) fail('chat_testops_launch_mismatch');
+    }
+    const job = await read('JOB_GET', run.job.id, `/api/job/${run.job.id}`);
+    if (job.id !== run.job.id) fail('chat_testops_job_id_mismatch');
+    if (job.type !== 'github') fail('chat_testops_job_type_mismatch');
+    if (!Array.isArray(job.parameters)) fail('chat_testops_job_parameters_shape_mismatch');
+    if (job.parameters.length > 4) fail('chat_testops_job_parameters_limit');
+    if (strict && !publicJobUrl(job.url, env)) fail('chat_testops_job_url_mismatch');
+    const parameters = [];
+    const seen = new Set();
+    for (const parameter of job.parameters) {
+      if (!id(parameter.id) || strict && seen.has(parameter.id)) fail('chat_testops_parameter_mismatch');
+      seen.add(parameter.id);
+      const value = Object.getOwnPropertyDescriptor(parameter, 'value');
+      const fixedRef = value && Object.hasOwn(value, 'value') && value.value === 'refs/heads/master';
+      parameters.push({ id: parameter.id, kind: fixedRef ? 'fixed_default_ref' : 'UNRESOLVED',
+        value: fixedRef ? 'refs/heads/master' : 'NOT_PROJECTED' });
+    }
+    return { ...(strict ? { schema: 'paperclip.chat-feature-testops-bootstrap-registration/v1', ...context, capturedAfterWatch: true, runnableBindingQualified: false } : {}),
+      status: 'observed', projectId: 1, jobId: job.id, allureJobRunId: env.ALLURE_JOB_RUN_ID,
+      publicWorkflowMatches: publicJobUrl(job.url, env), currentRunUrlMatches: run.url === `https://github.com/paperclipai/paperclip/actions/runs/${env.GITHUB_RUN_ID}`,
+      launchId: id(run.launchId) ? run.launchId : null, parameters, requests, actualResult: null };
+  } catch (error) {
+    const failure = error instanceof SetupFailure ? error : new SetupFailure('unknown_failure');
+    if (requests.length) failure.request = { ...requests.at(-1) };
+    throw failure;
   }
-  return { status: 'observed', projectId: 1, jobId: job.id, allureJobRunId: env.ALLURE_JOB_RUN_ID,
-    publicWorkflowMatches: publicJobUrl(job.url, env), currentRunUrlMatches: run.url === `https://github.com/paperclipai/paperclip/actions/runs/${env.GITHUB_RUN_ID}`,
-    launchId: id(run.launchId) ? run.launchId : null, parameters, actualResult: null };
 }
 
 const launchAdmissions = new WeakSet();
@@ -257,7 +355,7 @@ export async function launchChatPlan(api, env, markOnce, admission) {
       jobId: known.jobId, caseId: known.caseId, launchId: existing[0].id, status: 'EXISTING_NO_RESEND', actualResult: null };
   }
   await markOnce({ ...source, launchAdmission: admission, nonce, planId: known.planId, jobId: known.jobId, caseId: known.caseId });
-  const parameters = [{ id: known.parameterId, value: 'evaluate' }];
+  const parameters = known.parameters;
   await api(`/api/job/${known.jobId}`, 'PATCH', { integrationId: known.integrationId, canRun: true, parameters });
   const patched = await api(`/api/job/${known.jobId}`);
   if (patched.id !== known.jobId || patched.type !== 'github' || !publicJobUrl(patched.url, env) || !same(patched.parameters, parameters)) fail('chat_testops_parameter_mismatch');
@@ -284,59 +382,138 @@ export async function verifyChatUpload(api, env, selected, exported, { wait = ms
     || exported.caseId !== selected.caseId || exported.campaignId !== `gha-${context.runId}-1` || exported.count !== 1
     || !['passed', 'failed'].includes(exported.status) || !['passed', 'failed', 'not_started'].includes(exported.cleanup)
     || exported.status === 'passed' && exported.cleanup !== 'passed' || !Array.isArray(exported.attachmentMetadata)
-    || exported.attachmentMetadata.length < 2 || exported.attachmentMetadata.length > 10) fail('chat_testops_upload_mismatch');
+    || exported.attachmentMetadata.length < 2 || exported.attachmentMetadata.length > 10) stopUpload('chat_testops_upload_mismatch', 'context', () => ({
+    selected_run: [selected.runId === context.runId, selected.runId], selected_attempt: [selected.attempt === '1', selected.attempt],
+    selected_workflow_sha: [selected.workflowSha === context.workflowSha, selected.workflowSha],
+    selected_target_sha: [selected.targetSha === context.targetSha, selected.targetSha],
+    selected_jobrun: [selected.allureJobRunId === env.ALLURE_JOB_RUN_ID, selected.allureJobRunId],
+    env_jobrun: [selected.allureJobRunId === env.ALLURE_JOB_RUN_ID, env.ALLURE_JOB_RUN_ID],
+    selected_execution: [selected.executionId === executionId, selected.executionId], selected_scenario: [selected.canonicalScenario === scenario, selected.canonicalScenario],
+    selected_project: [selected.projectId === 1, selected.projectId], selected_full_name: [aliases.includes(selected.fullName), selected.fullName],
+    plan_id: [id(selected.planId), selected.planId], job_id: [id(selected.jobId), selected.jobId],
+    case_id: [id(selected.caseId), selected.caseId], launch_id: [id(selected.launchId), selected.launchId],
+    export_case: [exported.caseId === selected.caseId, exported.caseId], export_campaign: [exported.campaignId === `gha-${context.runId}-1`, exported.campaignId],
+    export_count: [exported.count === 1, exported.count], export_status: [['passed', 'failed'].includes(exported.status), exported.status],
+    export_cleanup: [['passed', 'failed', 'not_started'].includes(exported.cleanup), exported.cleanup],
+    passed_cleanup: [!(exported.status === 'passed' && exported.cleanup !== 'passed')],
+    attachment_array: [Array.isArray(exported.attachmentMetadata), exported.attachmentMetadata],
+    attachment_count: [Array.isArray(exported.attachmentMetadata) && exported.attachmentMetadata.length >= 2 && exported.attachmentMetadata.length <= 10],
+  }));
   const allowedAttachments = new Map([['Synthetic task and source conversation', 'image/png'],
     ['Execution provenance and checks', 'application/json'], ['Sanitized Product E2E record and accounting', 'application/json']]);
   if (exported.attachmentMetadata.some(row => allowedAttachments.get(row.name) !== row.contentType
     || !Number.isSafeInteger(row.contentLength) || row.contentLength <= 0 || row.contentLength > 12 * 1024 * 1024)
     || exported.attachmentMetadata.filter(row => row.name === 'Execution provenance and checks').length !== 1
     || exported.attachmentMetadata.filter(row => row.name === 'Sanitized Product E2E record and accounting').length !== 1
-    || exported.status === 'passed' && !exported.attachmentMetadata.some(row => row.contentType === 'image/png')) fail('chat_testops_upload_mismatch');
+    || exported.status === 'passed' && !exported.attachmentMetadata.some(row => row.contentType === 'image/png')) stopUpload('chat_testops_upload_mismatch', 'attachment_contract', () => ({
+    attachment_rows: [!exported.attachmentMetadata.some(row => allowedAttachments.get(row?.name) !== row?.contentType
+      || !Number.isSafeInteger(row?.contentLength) || row?.contentLength <= 0 || row?.contentLength > 12 * 1024 * 1024)],
+    provenance_count: [exported.attachmentMetadata.filter(row => row?.name === 'Execution provenance and checks').length === 1],
+    record_count: [exported.attachmentMetadata.filter(row => row?.name === 'Sanitized Product E2E record and accounting').length === 1],
+    passed_screenshot: [!(exported.status === 'passed' && !exported.attachmentMetadata.some(row => row?.contentType === 'image/png'))],
+  }));
   const signature = rows => rows.map(row => JSON.stringify([row.name, row.contentType, row.contentLength])).sort();
   const runUrl = `https://github.com/paperclipai/paperclip/actions/runs/${context.runId}`;
   const sourceUrl = `https://github.com/paperclipai/paperclip/commit/${context.targetSha}`;
   const deadline = now() + 120_000;
+  const attachmentReadiness = [];
+  const unverified = () => stopUpload('chat_testops_upload_unverified', 'attachment_readiness', () => ({
+    attachment_page_observed: [attachmentReadiness.length > 0],
+    attachments_not_missed: [attachmentReadiness.at(-1)?.missedCount === 0],
+    attachment_signatures_match: [attachmentReadiness.at(-1)?.signaturesMatch === true],
+    result_status_matches: [attachmentReadiness.at(-1)?.resultStatusMatches === true],
+    attachments_ready: [attachmentReadiness.at(-1)?.ready === true],
+  }), attachmentReadiness);
   const get = async route => {
     const remaining = deadline - now();
-    if (remaining < 1) fail('chat_testops_upload_unverified');
+    if (remaining < 1) unverified();
     const value = await api(route, 'GET', undefined, Math.min(30_000, Math.floor(remaining)));
-    if (now() >= deadline) fail('chat_testops_upload_unverified');
+    if (now() >= deadline) unverified();
     return value;
   };
   for (let poll = 0; poll < 12 && now() < deadline; poll++) {
     const run = await get(`/api/jobrun/${selected.allureJobRunId}`);
     if (run.id !== Number(selected.allureJobRunId) || run.job?.id !== selected.jobId || run.job?.type !== 'github'
-      || run.launchId !== selected.launchId || run.url !== runUrl || !['in_progress', 'finished'].includes(run.stage)) fail('chat_testops_jobrun_mismatch');
+      || run.launchId !== selected.launchId || run.url !== runUrl || !['in_progress', 'finished'].includes(run.stage)) stopUpload('chat_testops_jobrun_mismatch', 'jobrun', () => ({
+      jobrun_id: [run.id === Number(selected.allureJobRunId), run.id], job_id: [run.job?.id === selected.jobId, run.job?.id],
+      job_type: [run.job?.type === 'github', run.job?.type], launch_id: [run.launchId === selected.launchId, run.launchId],
+      run_url: [run.url === runUrl, run.url], stage: [['in_progress', 'finished'].includes(run.stage), run.stage],
+    }));
     const launch = await get(`/api/launch/${selected.launchId}`);
-    if (launch.id !== selected.launchId || launch.projectId !== 1) fail('chat_testops_launch_mismatch');
+    if (launch.id !== selected.launchId || launch.projectId !== 1) stopUpload('chat_testops_launch_mismatch', 'launch', () => ({
+      launch_id: [launch.id === selected.launchId, launch.id], project_id: [launch.projectId === 1, launch.projectId],
+    }));
     const listed = await get(`/api/testresult?${new URLSearchParams({ launchId: String(selected.launchId), page: '0', size: '100' })}`);
     if (!Array.isArray(listed?.content) || listed.content.length > 1 || !Number.isSafeInteger(listed.totalElements)
-      || listed.totalElements !== listed.content.length || !Number.isSafeInteger(listed.totalPages) || listed.totalPages < 0 || listed.totalPages > 1) fail('chat_testops_upload_mismatch');
+      || listed.totalElements !== listed.content.length || !Number.isSafeInteger(listed.totalPages) || listed.totalPages < 0 || listed.totalPages > 1) stopUpload('chat_testops_upload_mismatch', 'result_page', () => ({
+      content_array: [Array.isArray(listed?.content), listed?.content], content_limit: [Array.isArray(listed?.content) && listed.content.length <= 1],
+      total_integer: [Number.isSafeInteger(listed?.totalElements), listed?.totalElements],
+      total_matches_content: [Array.isArray(listed?.content) && listed.totalElements === listed.content.length],
+      pages_integer: [Number.isSafeInteger(listed?.totalPages), listed?.totalPages],
+      pages_range: [Number.isSafeInteger(listed?.totalPages) && listed.totalPages >= 0 && listed.totalPages <= 1],
+    }));
     if (listed.content.length) {
       const row = listed.content[0];
-      if (!id(row.id) || row.testCaseId !== selected.caseId) fail('chat_testops_upload_mismatch');
+      if (!id(row.id) || row.testCaseId !== selected.caseId) stopUpload('chat_testops_upload_mismatch', 'result_row', () => ({
+        result_id: [id(row.id), row.id], case_id: [row.testCaseId === selected.caseId, row.testCaseId],
+      }));
       const result = await get(`/api/testresult/${row.id}`);
       if (result.id !== row.id || result.projectId !== 1 || result.launchId !== selected.launchId || result.testCaseId !== selected.caseId
         || result.fullName !== selected.fullName || result.jobRun?.id !== Number(selected.allureJobRunId)
-        || result.jobRun?.job?.id !== selected.jobId || result.jobRun?.launchId !== selected.launchId || result.jobRun?.url !== runUrl
-        || !Array.isArray(result.links) || !result.links.some(link => link.url === runUrl)
-        || !result.links.some(link => link.url === sourceUrl)) fail('chat_testops_upload_mismatch');
-      if (!['passed', 'failed', 'broken', 'skipped', 'unknown'].includes(result.status)) fail('chat_testops_upload_mismatch');
-      if (result.status !== 'unknown' && result.status !== exported.status) fail('chat_testops_upload_mismatch');
+        || result.jobRun?.launchId !== selected.launchId || result.jobRun?.url !== runUrl
+        || result.jobRun.job != null && (result.jobRun.job.id !== run.job.id
+          || result.jobRun.job.type != null && result.jobRun.job.type !== run.job.type
+          || result.jobRun.job.url != null && !publicJobUrl(result.jobRun.job.url, env))
+        || !Array.isArray(result.links) || result.links.some(link => typeof link.url === 'string'
+          && (link.url.startsWith('https://github.com/paperclipai/paperclip/actions/runs/') && link.url !== runUrl
+            || link.url.startsWith('https://github.com/paperclipai/paperclip/commit/') && link.url !== sourceUrl))) stopUpload('chat_testops_upload_mismatch', 'result', () => ({
+        result_id: [result.id === row.id, result.id], project_id: [result.projectId === 1, result.projectId],
+        launch_id: [result.launchId === selected.launchId, result.launchId], case_id: [result.testCaseId === selected.caseId, result.testCaseId],
+        full_name: [result.fullName === selected.fullName, result.fullName], jobrun_id: [result.jobRun?.id === Number(selected.allureJobRunId), result.jobRun?.id],
+        jobrun_launch: [result.jobRun?.launchId === selected.launchId, result.jobRun?.launchId], jobrun_url: [result.jobRun?.url === runUrl, result.jobRun?.url],
+        embedded_job: [!(result.jobRun?.job != null && (result.jobRun.job.id !== run.job.id
+          || result.jobRun.job.type != null && result.jobRun.job.type !== run.job.type
+          || result.jobRun.job.url != null && !publicJobUrl(result.jobRun.job.url, env))), result.jobRun?.job],
+        links_array: [Array.isArray(result.links), result.links], known_links: [Array.isArray(result.links) && !result.links.some(link => typeof link?.url === 'string'
+          && (link?.url.startsWith('https://github.com/paperclipai/paperclip/actions/runs/') && link?.url !== runUrl
+            || link?.url.startsWith('https://github.com/paperclipai/paperclip/commit/') && link?.url !== sourceUrl))],
+      }));
+      if (!['passed', 'failed', 'broken', 'skipped', 'unknown'].includes(result.status)) stopUpload('chat_testops_upload_mismatch', 'result_status', () => ({
+        status_supported: [['passed', 'failed', 'broken', 'skipped', 'unknown'].includes(result.status), result.status],
+      }));
+      if (result.status !== 'unknown' && result.status !== exported.status) stopUpload('chat_testops_upload_mismatch', 'result_status', () => ({
+        status_matches_export: [result.status === 'unknown' || result.status === exported.status, result.status],
+      }));
       const attached = await get(`/api/testresult/attachment?${new URLSearchParams({ testResultId: String(row.id), page: '0', size: '100' })}`);
       if (!Array.isArray(attached?.content) || attached.content.length > 10 || !Number.isSafeInteger(attached.totalElements)
         || attached.totalElements !== attached.content.length || !Number.isSafeInteger(attached.totalPages) || attached.totalPages < 0 || attached.totalPages > 1
-        || new Set(attached.content.map(value => value.id)).size !== attached.content.length
-        || attached.content.some(value => !id(value.id) || value.missed === true || value.fromTestCase === true)) fail('chat_testops_upload_mismatch');
-      if (now() < deadline && result.status === exported.status && same(signature(attached.content), signature(exported.attachmentMetadata))) {
+        || new Set(attached.content.map(value => value?.id)).size !== attached.content.length
+        || attached.content.some(value => !id(value?.id) || value?.fromTestCase === true)) stopUpload('chat_testops_upload_mismatch', 'attachment_page', () => ({
+        content_array: [Array.isArray(attached?.content), attached?.content], content_limit: [Array.isArray(attached?.content) && attached.content.length <= 10],
+        total_integer: [Number.isSafeInteger(attached?.totalElements), attached?.totalElements],
+        total_matches_content: [Array.isArray(attached?.content) && attached.totalElements === attached.content.length],
+        pages_integer: [Number.isSafeInteger(attached?.totalPages), attached?.totalPages],
+        pages_range: [Number.isSafeInteger(attached?.totalPages) && attached.totalPages >= 0 && attached.totalPages <= 1],
+        unique_ids: [Array.isArray(attached?.content) && new Set(attached.content.map(value => value?.id)).size === attached.content.length],
+        ids_valid: [Array.isArray(attached?.content) && attached.content.every(value => id(value?.id))],
+        not_inherited: [Array.isArray(attached?.content) && !attached.content.some(value => value?.fromTestCase === true)],
+        attachment_rows: [Array.isArray(attached?.content) && !attached.content.some(value => !id(value?.id) || value?.fromTestCase === true)],
+      }));
+      const withinDeadline = now() < deadline;
+      const missedCount = attached.content.filter(value => value?.missed === true).length;
+      const signaturesMatch = same(signature(attached.content), signature(exported.attachmentMetadata));
+      const resultStatusMatches = result.status === exported.status;
+      const ready = withinDeadline && resultStatusMatches && missedCount === 0 && signaturesMatch;
+      attachmentReadiness.push({ poll: poll + 1, attachmentCount: attached.content.length, missedCount, signaturesMatch, resultStatusMatches, withinDeadline, ready });
+      if (ready) {
         return { schema: 'paperclip.chat-feature-testops-upload-verification/v1', ...context, projectId: 1, planId: selected.planId,
           jobId: selected.jobId, allureJobRunId: selected.allureJobRunId, launchId: selected.launchId, caseId: selected.caseId,
           resultId: result.id, executionId, status: result.status, cleanup: exported.cleanup, verification: 'VERIFIED',
-          attachments: exported.attachmentMetadata.map(value => ({ ...value })),
+          attachments: exported.attachmentMetadata.map(value => ({ ...value })), attachmentReadiness,
           launchUrl: `${endpoint}/launch/${selected.launchId}`, resultUrl: `${endpoint}/testresult/${result.id}` };
       }
     }
     if (poll < 11 && now() + 5000 < deadline) await wait(5000);
   }
-  fail('chat_testops_upload_unverified');
+  unverified();
 }
