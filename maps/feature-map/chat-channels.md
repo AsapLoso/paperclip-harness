@@ -49,6 +49,17 @@ AgentMail bypasses the chat-connectors UI gate, GitHub uses
 `enableGitHubReviewBots`, and other chat providers use `enableChatConnectors`.
 Setup is covered in [connection setup](./connection-setup.md).
 
+For managed Slack setup, resume a saved draft with an authorized workspace and
+choose Continue. Verify it creates and installs the bot once. The HTTP route
+must resolve the selected Slack manager grant, reject malformed or missing IDs,
+and deny another company's or person's grant before provider calls. The channel
+integration suite exercises this route with a board fixture and provider fixtures;
+live Slack setup remains a separate acceptance check.
+After welcome delivery completes setup automatically, verify **Open Slack**
+remains on Success and on the saved connection page. Follow that visible link,
+send a real DM and thread follow-up, then reload the catalog to confirm setup
+stays complete. A welcome message alone is not an agent response.
+
 ### `external-thread`
 
 Automated: [channel integration](../../server/src/__tests__/chat-channels.integration.test.ts) uses provider fixtures; it does not prove a live Slack, Discord, Teams, Telegram, GitHub, email, or Photon delivery.
@@ -277,6 +288,14 @@ verified controller and environment cleanup; an unknown executor remains held.
 After successful admission, reload and verify that the prior skipped receipt does
 not strand a later real provider reply or tree resume. Provider fixtures support
 this behavior; live fixed-source runtime and destination proof remain separate.
+
+Also complete an older review successfully while a newer authorized PR event
+remains deferred. Use Retry and verify that the existing saved-input receipt
+starts exactly one new turn, repeated clicks share that turn, and the older
+accepted result remains unchanged. Revoke the connection or change the source
+binding before dispatch and verify no run starts. Keep prior cleanup pending,
+then settle it and verify the same receipt resumes once. These database-backed
+provider fixtures do not establish live GitHub publication at the fixed revision.
 
 Also defer Retry behind cleanup, queue an independent board message, then
 complete cleanup. Verify one run receives the exact GitHub batch and the board
