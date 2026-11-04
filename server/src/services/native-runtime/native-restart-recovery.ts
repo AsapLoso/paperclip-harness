@@ -34,11 +34,15 @@ import { REMOTE_CONTROLLER_LEASE_MS } from "./native-runner-recovery-contract.js
 import { readProcessStartedAt } from "../hot-restart.js";
 import { getServerProcessStartedAt } from "../../server-info.js";
 import { redactSensitiveText } from "../../redaction.js";
+import { isUniqueViolation } from "../../db-errors.js";
+import { logger } from "../../middleware/logger.js";
 import { issueRecoveryActionService } from "../issue-recovery-actions.js";
 import { isNewTerminalRunFailure, reportRunFailure } from "../run-failure-report.js";
 import { isNativeRunnerOwnershipHeld } from "./native-runner-ownership.js";
 import { nativeRestartInterruptedTurnId, type PersistedNativeSession } from "../../vendor/paperclip-runner/index.js";
 import { retireSupersededNativeRetry } from "./native-superseded-retry.js";
+import { legacyWorkspaceRecoveryNotMigrated } from "../legacy-workspace-recovery-migration.js";
+import { appendHeartbeatRunEvent } from "../heartbeat-run-events.js";
 import { requestNativeStartupCleanup, readNativeStartupContext, promoteNativeStartupCleanup } from "./native-startup-cleanup.js";
 
 export type NativeControllerIdentity = {
@@ -48,6 +52,9 @@ export type NativeControllerIdentity = {
 };
 
 export type NativeRestartKind = "hot" | "hard" | "graceful";
+
+/** A recovery claim for one run failed unexpectedly and was deferred. */
+export const NATIVE_RESTART_RECOVERY_FAILED = "restart_recovery_failed";
 
 export type NativeRestartRecoveryClaim =
   | {
@@ -524,6 +531,7 @@ export async function claimNativeRestartRecoveries(input: {
     .where(
       and(
         eq(heartbeatRuns.runtimeMode, "native"),
+        legacyWorkspaceRecoveryNotMigrated(),
         eq(agents.adapterType, "paperclip_runner"),
         or(inArray(heartbeatRuns.status, ["running", "failed"]), and(
           eq(heartbeatRuns.status, "interrupted"), eq(nativeRunFinalizations.phase, "observed"),
@@ -581,6 +589,7 @@ export async function claimNativeRestartRecoveries(input: {
           run: heartbeatRuns,
           coordinator: nativeRunFinalizations,
           issueExecutionRunId: issues.executionRunId,
+          issueCheckoutRunId: issues.checkoutRunId,
           issueAssigneeAgentId: issues.assigneeAgentId,
           issueStatus: issues.status,
         })
@@ -603,6 +612,8 @@ export async function claimNativeRestartRecoveries(input: {
       if (!row) {
         return busy();
       }
+      if (row.run.runnerProfileJson?.legacyWorkspaceRecoveryMigration != null)
+        return { kind: "blocked", runId: row.run.id, reason: "legacy_workspace_recovery_migrated" } as const;
       const stopCleanup = row.coordinator.phase === "observed"
         && row.coordinator.companyId === row.run.companyId && row.coordinator.issueId === row.run.nativeIssueId
         && await readPendingNativeRunStop(tx as unknown as Db, row.run);
@@ -626,7 +637,20 @@ export async function claimNativeRestartRecoveries(input: {
       if (!input.liveRunExecutions?.has(row.run.id) && await retireSupersededNativeRetry(tx as unknown as Db, {
         run: row.run, coordinator: row.coordinator, issueExecutionRunId: row.issueExecutionRunId, now,
       })) return { kind: "blocked", runId: row.run.id, reason: "native_retry_superseded" } as const;
-      if (row.issueExecutionRunId !== row.run.id && !(stopCleanup && row.issueExecutionRunId === null)) {
+      // A scheduled same-run resume can find its task lock released while no
+      // other run holds the task. Like the local resume claim, reclaim the
+      // free lock unless another run is admitted for this task.
+      const reclaimsExecution = row.issueExecutionRunId === null
+        && row.coordinator.phase === "retryable_failure"
+        && (row.issueCheckoutRunId === null || row.issueCheckoutRunId === row.run.id)
+        && !(await tx.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(and(
+          eq(heartbeatRuns.companyId, row.run.companyId), ne(heartbeatRuns.id, row.run.id),
+          inArray(heartbeatRuns.status, ["queued", "running", "scheduled_retry"]),
+          or(eq(heartbeatRuns.issueId, row.coordinator.issueId), eq(heartbeatRuns.nativeIssueId, row.coordinator.issueId),
+            sql`${heartbeatRuns.contextSnapshot}->>'issueId' = ${row.coordinator.issueId}`),
+        )).limit(1)).length;
+      if (row.issueExecutionRunId !== row.run.id && !(stopCleanup && row.issueExecutionRunId === null)
+        && !reclaimsExecution) {
         return {
           kind: "blocked",
           runId: row.run.id,
@@ -1161,6 +1185,23 @@ export async function claimNativeRestartRecoveries(input: {
           updatedAt: now,
         })
         .where(eq(heartbeatRuns.id, row.run.id));
+      if (reclaimsExecution) {
+        const [agent] = await tx.select({ name: agents.name }).from(agents)
+          .where(eq(agents.id, row.run.agentId)).limit(1);
+        await tx.update(issues).set({
+          executionRunId: row.run.id,
+          executionAgentNameKey: agent?.name.trim().toLowerCase() || null,
+          executionLockedAt: now,
+          updatedAt: now,
+        }).where(and(eq(issues.id, row.coordinator.issueId), eq(issues.companyId, row.run.companyId),
+          isNull(issues.executionRunId)));
+        await appendHeartbeatRunEvent(tx as unknown as Db, {
+          companyId: row.run.companyId, runId: row.run.id, agentId: row.run.agentId,
+          eventType: "native.recovery.execution_reclaimed", stream: "system", level: "info",
+          message: "Reclaimed the original task execution for native session recovery.",
+          payload: { issueId: row.coordinator.issueId },
+        });
+      }
 
       claimScope = { companyId: row.run.companyId, issueId: row.coordinator.issueId, controller, remote: Boolean(durableAuthority) };
       const common = {
@@ -1200,6 +1241,20 @@ export async function claimNativeRestartRecoveries(input: {
         kind: claimKind,
         ...common,
       } satisfies NativeRestartRecoveryClaim;
+    }).catch((error: unknown) => {
+      // The whole candidate transaction rolled back, so this run's state is
+      // unchanged and nothing was claimed. Keep the obligation on the existing
+      // recovery deadline and continue the batch: one run must not stop
+      // startup recovery.
+      terminalRunToReport = null;
+      claimScope = undefined;
+      const routineBusy = isUniqueViolation(error, "issues_open_routine_execution_uq");
+      if (!routineBusy) {
+        logger.error({ err: error, runId: candidate.runId }, "native restart recovery failed for one run; deferring it");
+      }
+      return { kind: "awaiting_evidence" as const, runId: candidate.runId,
+        reason: routineBusy ? "routine_execution_busy" : NATIVE_RESTART_RECOVERY_FAILED,
+        retryAt: new Date(now.getTime() + 30_000) };
     });
     if (terminalRunToReport)
       void reportRunFailure(input.db, terminalRunToReport);
