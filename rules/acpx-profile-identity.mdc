@@ -35,6 +35,8 @@ Ordinary Runner source changes, refactors and comments change none of these.
   `declaration`. The digest binds only what a repackager copies verbatim from
   the upstream release, so the same release gives the same digest wherever the
   pack is built or installed.
+  Text launcher attestations normalize line endings to LF so Windows checkout
+  settings do not change the release identity.
 - **Keep Paperclip source and the ACPX layer out of provider digests.**
   Runner/pack compatibility belongs to the `contractDigest`. When Runner code
   and a pack must agree on a new field or behavior, declare it in a schema
