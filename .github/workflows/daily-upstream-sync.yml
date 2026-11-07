@@ -64,7 +64,7 @@ jobs:
           unexpected=""
           while IFS= read -r path; do
             case "$path" in
-              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|.github/workflows/daily-upstream-sync.yml) ;;
+              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|tests/runner-e2e/prepare-report-lock.mjs|tests/runner-e2e/prepare-report-lock.test.ts|.github/workflows/daily-upstream-sync.yml) ;;
               *) unexpected="${unexpected}${path}"$'\n' ;;
             esac
           done <<< "$conflicts"
@@ -131,7 +131,7 @@ jobs:
           unexpected=""
           while IFS= read -r path; do
             case "$path" in
-              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|.github/workflows/daily-upstream-sync.yml) ;;
+              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|tests/runner-e2e/prepare-report-lock.mjs|tests/runner-e2e/prepare-report-lock.test.ts|.github/workflows/daily-upstream-sync.yml) ;;
               *) unexpected="${unexpected}${path}"$'\n' ;;
             esac
           done < <(git diff HEAD --name-only)
