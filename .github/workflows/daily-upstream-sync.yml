@@ -48,39 +48,20 @@ jobs:
 
       - name: Merge Upstream Master
         shell: bash
+        env:
+          BASE_SHA: ${{ steps.baseline.outputs.base_sha }}
+          EXPECTED_FORK_PREPARE_REPORT_LOCK_BLOB: 97b6fea8ed7f06f38ef25c126f0ad91764c062c4
+          EXPECTED_UPSTREAM_PREPARE_REPORT_LOCK_BLOB: f713cca39b0e658a9a7fee94e086ce830421d0d0
+          EXPECTED_FORK_PREPARE_REPORT_LOCK_TEST_BLOB: a873205f1774f1a989aa0e628a15abb9a65ec65a
+          EXPECTED_UPSTREAM_PREPARE_REPORT_LOCK_TEST_BLOB: 6098e9d393fa29919b9d43d1c74bf836f89cbcd9
+          EXPECTED_FORK_PREPARE_REPORT_LOCK_DECL_BLOB: fc4f481fd4fc8389973f5e196dd1ffcbad83762e
+          EXPECTED_UPSTREAM_PREPARE_REPORT_LOCK_DECL_BLOB: 1aa68bacd63d26b6079f76ab6bced90bae90d283
         run: |
           echo "Attempting fast-forward or 3-way merge from upstream/master..."
           if git merge --no-edit upstream/master; then
             exit 0
           fi
-
-          conflicts="$(git diff --name-only --diff-filter=U)"
-          if [ -z "$conflicts" ]; then
-            echo "Upstream merge failed without a resolvable file conflict."
-            git merge --abort
-            exit 1
-          fi
-
-          unexpected=""
-          while IFS= read -r path; do
-            case "$path" in
-              pnpm-lock.yaml|tests/runner-e2e/report-lock.json|tests/runner-e2e/report-lock.patch|.github/workflows/daily-upstream-sync.yml) ;;
-              *) unexpected="${unexpected}${path}"$'\n' ;;
-            esac
-          done <<< "$conflicts"
-          if [ -n "$unexpected" ]; then
-            echo "Upstream conflicts outside the regenerable lock files and fork-owned sync workflow:"
-            printf '%s' "$unexpected"
-            git merge --abort
-            exit 1
-          fi
-
-          echo "Resolving lock conflicts from the fork baseline and preserving the fork-owned sync workflow."
-          while IFS= read -r path; do
-            git checkout --ours -- "$path"
-            git add -- "$path"
-          done <<< "$conflicts"
-          GIT_EDITOR=true git merge --continue
+          bash .github/scripts/resolve-daily-upstream-sync-conflicts.sh
 
       - name: Restore fork-owned sync workflow and report proof
         env:
