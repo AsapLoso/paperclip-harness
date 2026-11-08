@@ -78,10 +78,12 @@ jobs:
         run: node tests/runner-e2e/prepare-report-lock.mjs --refresh
 
       - name: Fail on unexpected file changes
+        id: lockfile-diff
         run: |
           changed="$(git status --porcelain)"
           if [ -z "$changed" ]; then
             echo "Lockfile is already up to date."
+            echo "lockfile_changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           unexpected="$(printf '%s\n' "$changed" | awk '$2 != "pnpm-lock.yaml" && $2 != "tests/runner-e2e/report-lock.json" && $2 != "tests/runner-e2e/report-lock.patch" { print }')"
@@ -90,11 +92,29 @@ jobs:
             echo "$changed"
             exit 1
           fi
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "lockfile_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "lockfile_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # This token can create a PR but cannot push or merge: the merge endpoint
+      # requires Contents: write, while this token gets read-only contents.
+      # The built-in Actions token cannot create pull requests under repo settings.
+      - name: Create lockfile PR token
+        id: pr-token
+        if: steps.lockfile-diff.outputs.lockfile_changed == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.LOCKFILE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.LOCKFILE_BOT_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
 
       - name: Create or update pull request
         id: upsert-pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
           if git diff --quiet -- pnpm-lock.yaml; then
@@ -232,10 +252,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Mint the bypass token only after resolution has finished, so no earlier
-      # step can read it. The lockfile bot is a master ruleset bypass actor in
-      # pull_request mode: it can merge PRs past checks and review, but cannot
-      # push to master directly. See doc/RELEASE-AUTOMATION-SETUP.md.
+      # The lockfile bot is a master ruleset bypass actor in pull_request mode:
+      # it can merge only after the release-age gate passes. See the setup guide.
       - name: Create lockfile bot token
         id: bot-token
         if: steps.release-age.outputs.eligible == 'true'

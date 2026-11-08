@@ -14,17 +14,21 @@ const condition = (name) => step(name).match(/^        if: (.+)$/m)?.[1].trim();
 test("the bot key is only reachable from the master-only lockfile-refresh environment", () => {
   assert.match(workflow, /^    environment: lockfile-refresh$/m);
   const keyUses = workflow.match(/secrets\.LOCKFILE_BOT_PRIVATE_KEY/g) ?? [];
-  assert.equal(keyUses.length, 1, "only the token step may read the bot key");
+  assert.equal(keyUses.length, 2, "only the two scoped token steps may read the bot key");
+  assert.match(step("Create lockfile PR token"), /permission-contents: read[\s\S]*permission-pull-requests: write/);
   assert.match(step("Create lockfile bot token"), /private-key: \$\{\{ secrets\.LOCKFILE_BOT_PRIVATE_KEY \}\}/);
 });
 
-test("the bot token is minted only after resolution and the release-age gate", () => {
+test("the PR token is limited and the merge-capable token waits for the release-age gate", () => {
   const order = (name) => {
     const index = stepNames.indexOf(name);
     assert.notEqual(index, -1, `missing step "${name}"`);
     return index;
   };
   assert.ok(order("Refresh pnpm lockfile") < order("Check release age of added package versions"));
+  assert.ok(order("Fail on unexpected file changes") < order("Create lockfile PR token"));
+  assert.ok(order("Create lockfile PR token") < order("Create or update pull request"));
+  assert.ok(order("Create or update pull request") < order("Check release age of added package versions"));
   assert.ok(order("Check release age of added package versions") < order("Create lockfile bot token"));
   assert.ok(order("Create lockfile bot token") < order("Merge lockfile PR"));
 });
@@ -32,8 +36,10 @@ test("the bot token is minted only after resolution and the release-age gate", (
 test("the gate runs only for an open PR, and the bot acts only when the gate passes", () => {
   assert.equal(condition("Check release age of added package versions"), "steps.upsert-pr.outputs.pr_url != ''");
   assert.equal(condition("Hold lockfile PR for review"), "steps.release-age.outputs.eligible == 'false'");
+  assert.equal(condition("Create lockfile PR token"), "steps.lockfile-diff.outputs.lockfile_changed == 'true'");
   assert.equal(condition("Create lockfile bot token"), "steps.release-age.outputs.eligible == 'true'");
   assert.equal(condition("Merge lockfile PR"), "steps.release-age.outputs.eligible == 'true'");
+  assert.match(step("Create or update pull request"), /GH_TOKEN: \$\{\{ steps\.pr-token\.outputs\.token \}\}/);
 });
 
 test("a held refresh keeps its versions through the next master run's artifact", () => {
